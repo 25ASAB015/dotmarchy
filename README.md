@@ -20,6 +20,13 @@
 <a href="https://github.com/25ASAB015/dotfiles/pulse">
 <img alt="Last Updated" src="https://img.shields.io/github/last-commit/25ASAB015/dotfiles?style=flat&color=e06c75&label="> </a>
 
+```bash
+# Instala dotmarchy con los siguientes dos comandos
+git clone https://github.com/25ASAB015/dotmarchy $HOME/.config/dotmarchy
+$HOME/.config/dotmarchy/dotmarchy.sh
+```
+
+
 <h3>Mis dotfiles para Arch Linux 🐧❤️</h3>
 
 <figure>
