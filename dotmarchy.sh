@@ -45,12 +45,20 @@ install_paru() {
 
 #--- Función para instalar los paquetes necesarios ---
 install_packages() {
-    echo -e "${GREEN}Instalando dependencias con paru...${NC}"
-    paru -S --noconfirm dotbare tree bat highlight ruby-coderay git-delta diff-so-fancy
-    if [ $? -ne 0 ]; then
-        handle_error $LINENO "La instalación de paquetes falló. Verifique la conexión a internet o los repositorios."
-    fi
-    echo -e "${GREEN}✅ Todos los paquetes instalados exitosamente.${NC}"
+    echo -e "${GREEN}Verificando e instalando dependencias con paru...${NC}"
+    PACKAGES="dotbare tree bat highlight ruby-coderay git-delta diff-so-fancy"
+    for package in $PACKAGES; do
+        if ! pacman -Q $package &> /dev/null; then
+            echo -e "${YELLOW}Instalando $package...${NC}"
+            paru -S --noconfirm $package
+            if [ $? -ne 0 ]; then
+                handle_error $LINENO "La instalación de $package falló."
+            fi
+        else
+            echo -e "${GREEN}✅ $package ya está instalado.${NC}"
+        fi
+    done
+    echo -e "${GREEN}✅ Verificación de paquetes completada.${NC}"
 }
 
 #--- Función para configurar dotbare ---
