@@ -1,1 +1,391 @@
-# dotmarchy
+# 🚀 dotmarchy
+
+<div align="center">
+
+**Script automatizado para instalar y configurar dotfiles en Arch Linux / Omarchy Linux**
+
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Shell Script](https://img.shields.io/badge/Shell-Bash-4EAA25?logo=gnu-bash)](https://www.gnu.org/software/bash/)
+
+</div>
+
+---
+
+## 📋 Tabla de Contenidos
+
+- [¿Qué es dotmarchy?](#-qué-es-dotmarchy)
+- [✨ Características Principales](#-características-principales)
+- [🛡️ Seguridad y Confiabilidad](#️-seguridad-y-confiabilidad)
+- [🎯 Beneficios](#-beneficios)
+- [📦 Requisitos](#-requisitos)
+- [🚀 Instalación y Uso](#-instalación-y-uso)
+- [⚙️ Opciones Avanzadas](#️-opciones-avanzadas)
+- [🔧 Tecnologías Utilizadas](#-tecnologías-utilizadas)
+- [📝 Logs y Depuración](#-logs-y-depuración)
+- [🤝 Contribuir](#-contribuir)
+- [📄 Licencia](#-licencia)
+
+---
+
+## 🎯 ¿Qué es dotmarchy?
+
+**dotmarchy** es un script bash robusto y confiable diseñado para automatizar completamente la instalación y configuración de dotfiles en sistemas Arch Linux y Omarchy Linux. Elimina la necesidad de configurar manualmente tu entorno de desarrollo, gestionando todo el proceso de forma segura y automatizada.
+
+### ¿Por qué usar dotmarchy?
+
+- ⚡ **Ahorra tiempo**: Configura tu entorno completo en minutos, no en horas
+- 🛡️ **Seguro**: Múltiples verificaciones de seguridad y respaldos automáticos
+- 🔄 **Reproducible**: Mismo entorno en cualquier máquina Arch/Omarchy
+- 🎨 **Profesional**: Interfaz visual clara con feedback en tiempo real
+- 🧪 **Probado**: Código estricto con manejo robusto de errores
+
+---
+
+## ✨ Características Principales
+
+### 🔄 Automatización Completa
+
+- ✅ Actualización automática del sistema (`pacman -Syu`)
+- ✅ Configuración automática del repositorio Chaotic-AUR
+- ✅ Instalación inteligente de dependencias (oficiales, Chaotic y AUR)
+- ✅ Configuración automática de dotbare para gestión de dotfiles
+- ✅ Clonado y aplicación automática de tu repositorio de dotfiles
+
+### 🎨 Experiencia de Usuario
+
+- 🖥️ Interfaz visual con colores y logo ASCII
+- 📊 Feedback en tiempo real con información de progreso
+- ⏱️ Cronometraje de operaciones para transparencia
+- 📝 Mensajes claros y descriptivos en cada paso
+
+### 🔍 Verificaciones Inteligentes
+
+- 🔐 Verificación de permisos (no ejecuta como root)
+- 🌐 Verificación de conexión a internet
+- 📦 Detección de paquetes ya instalados (evita reinstalaciones)
+- 🔄 Detección de configuraciones existentes
+
+---
+
+## 🛡️ Seguridad y Confiabilidad
+
+### Múltiples Capas de Seguridad
+
+#### 1. **Modo Estricto de Bash**
+```bash
+set -Eeuo pipefail
+```
+- **`-E`**: Los traps de error se heredan en funciones
+- **`-e`**: Sale inmediatamente si un comando falla
+- **`-u`**: Trata variables no definidas como error
+- **`-o pipefail`**: Detecta errores en pipelines
+
+#### 2. **Verificaciones Previas Obligatorias**
+
+- ❌ **No ejecuta como root**: Protege contra modificaciones peligrosas del sistema
+- 📍 **Ejecución desde HOME**: Evita confusiones de rutas
+- 🌐 **Verificación de internet**: Asegura conectividad antes de descargar
+- 🐧 **Verificación de sistema**: Solo funciona en Arch/Omarchy (requiere pacman)
+
+#### 3. **Manejo Robusto de Errores**
+
+- 📋 **Logging automático**: Todos los errores se registran en `~/.local/share/dotmarchy/install_errors.log`
+- 🔍 **Trap de errores**: Captura automática de fallos con información de línea y código
+- ✅ **Verificación post-instalación**: Confirma que cada paquete se instaló correctamente
+- 🔄 **Manejo de conflictos**: Detecta y resuelve conflictos de configuración existente
+
+#### 4. **Respaldo Automático**
+
+- 💾 **Backups antes de sobrescribir**: Protege tus configuraciones existentes
+- 📁 **Respaldo de directorios conflictivos**: Guarda versiones anteriores automáticamente
+- 🔙 **Recuperación fácil**: Puedes restaurar desde los backups creados
+
+#### 5. **Código de Calidad**
+
+- ✅ **shellcheck**: Análisis estático de código para detectar errores
+- ✅ **shfmt**: Formateo consistente del código
+- ✅ **Funciones modulares**: Código organizado y mantenible
+- ✅ **Comentarios en español**: Documentación clara y comprensible
+
+---
+
+## 🎯 Beneficios
+
+### Para Desarrolladores
+
+1. **Configuración Instantánea**
+   - Configura un nuevo sistema en minutos
+   - Mismo entorno en todas tus máquinas
+   - Sin configuración manual tediosa
+
+2. **Gestión Centralizada**
+   - Todos tus dotfiles en un repositorio Git
+   - Sincronización automática entre máquinas
+   - Historial completo de cambios
+
+3. **Reproducibilidad**
+   - Entorno idéntico en cualquier momento
+   - Fácil onboarding de nuevos desarrolladores
+   - Recuperación rápida después de reinstalación
+
+### Para Usuarios
+
+1. **Simplicidad**
+   - Un solo comando para configurar todo
+   - Sin necesidad de conocimiento técnico profundo
+   - Interfaz clara y guiada
+
+2. **Seguridad**
+   - Múltiples verificaciones de seguridad
+   - Respaldo automático de configuraciones
+   - No modifica configuraciones críticas del sistema
+
+3. **Confiabilidad**
+   - Manejo robusto de errores
+   - Logs detallados para depuración
+   - Verificación de cada paso
+
+---
+
+## 📦 Requisitos
+
+- **Sistema Operativo**: Arch Linux u Omarchy Linux
+- **Gestor de paquetes**: `pacman` (incluido por defecto)
+- **Permisos**: Usuario normal (NO root)
+- **Conexión**: Internet activa
+- **Ubicación**: Ejecutar desde el directorio HOME (`$HOME`)
+
+---
+
+## 💾 Instalación
+
+> **Nota**
+>
+> El instalador solo funciona para Arch Linux y distribuciones basadas en Arch (como Omarchy Linux). No funciona en distribuciones sin systemd como Artix.
+>
+> Antes de ejecutar este comando, revisa el código de dotmarchy para asegurarte de que funciona y confirmar que es seguro para tu sistema.
+
+Abre una terminal y ejecuta estos comandos uno por uno:
+
+```bash
+# Descargar el instalador en tu $HOME
+curl -LO https://raw.githubusercontent.com/25ASAB015/dotmarchy/master/dotmarchy
+
+# Dar permisos de ejecución
+chmod +x dotmarchy
+
+# Ejecutar el instalador (desde tu $HOME)
+cd ~
+./dotmarchy
+```
+
+### Uso con Repositorio Personalizado
+
+Si deseas usar tu propio repositorio de dotfiles:
+
+```bash
+# Especificar repositorio personalizado
+./dotmarchy https://github.com/usuario/mis-dotfiles.git
+
+# O usando SSH
+./dotmarchy git@github.com:usuario/mis-dotfiles.git
+
+# O usando el flag --repo
+./dotmarchy --repo https://github.com/usuario/mis-dotfiles.git
+```
+
+### Ayuda
+
+Para ver todas las opciones disponibles:
+
+```bash
+./dotmarchy --help
+```
+
+---
+
+## ⚙️ Opciones Avanzadas
+
+### Variables de Entorno
+
+Puedes personalizar el comportamiento del script usando variables de entorno:
+
+```bash
+# Cambiar directorio de dotbare (por defecto: ~/.cfg)
+export DOTBARE_DIR="$HOME/.mi-dotfiles"
+
+# Cambiar árbol de trabajo (por defecto: ~)
+export DOTBARE_TREE="$HOME"
+
+# Ejecutar
+./dotmarchy
+```
+
+### Modo Dry-Run (Prueba)
+
+Para probar el script sin hacer cambios reales:
+
+```bash
+DRY_RUN=1 ./dotmarchy
+```
+
+### Modo Verbose (Depuración)
+
+Para ver información detallada de cada operación:
+
+```bash
+VERBOSE=1 ./dotmarchy
+```
+
+---
+
+## 🔧 Tecnologías Utilizadas
+
+### Herramientas Principales
+
+- **Bash 4.0+**: Lenguaje de scripting principal
+- **pacman**: Gestor de paquetes oficial de Arch Linux
+- **paru**: Helper de AUR (instalado automáticamente desde Chaotic-AUR)
+- **dotbare**: Gestor de dotfiles basado en Git bare repository
+- **git**: Control de versiones para repositorios de dotfiles
+
+### Herramientas de Desarrollo
+
+- **shellcheck**: Análisis estático de código bash
+- **shfmt**: Formateador de código shell
+
+### Repositorios Utilizados
+
+- **Repositorios Oficiales de Arch**: Paquetes base del sistema
+- **Chaotic-AUR**: Repositorio de terceros para instalación rápida de paquetes AUR
+- **AUR (Arch User Repository)**: Repositorio comunitario de paquetes
+
+---
+
+## 📝 Logs y Depuración
+
+### Ubicación de Logs
+
+Todos los errores se registran automáticamente en:
+```
+~/.local/share/dotmarchy/install_errors.log
+```
+
+### Formato de Logs
+
+Cada entrada incluye:
+- ⏰ **Timestamp**: Fecha y hora del error
+- 📍 **Ubicación**: Línea del código donde ocurrió
+- 🔢 **Código de salida**: Código de error del comando
+- 📋 **Mensaje**: Descripción detallada del error
+
+### Ejemplo de Log
+
+```
+[2025-09-21 14:30:15] ERROR: Fallo en la línea 423. Código: 1
+[2025-09-21 14:30:16] ERROR: Error al instalar: paquete-example
+```
+
+### Depuración
+
+Si encuentras problemas:
+
+1. **Revisa los logs**: `cat ~/.local/share/dotmarchy/install_errors.log`
+2. **Ejecuta en modo verbose**: `VERBOSE=1 ./dotmarchy`
+3. **Verifica los requisitos**: Asegúrate de cumplir todos los requisitos
+4. **Revisa el código**: El script está bien documentado y comentado
+
+---
+
+## 🏗️ Arquitectura del Script
+
+### Estructura Modular
+
+El script está organizado en secciones claras y modulares:
+
+1. **Apariencia y opciones**: Colores, flags, rutas
+2. **Logging y utilidades**: Funciones de log, info, debug, timing
+3. **Encabezado visual**: Logo ASCII
+4. **Manejo de errores**: Sistema robusto de logging y traps
+5. **Utilidades internas**: Helpers para comandos y verificaciones
+6. **Interacción con usuario**: Mensajes de bienvenida y confirmación
+7. **Gestión de dependencias**: Instalación desde múltiples fuentes
+8. **Configuración de dotbare**: Setup completo del gestor de dotfiles
+9. **Flujo principal**: Orquestación de todas las operaciones
+
+### Flujo de Ejecución
+
+```
+1. Parseo de argumentos
+   ↓
+2. Verificaciones iniciales (seguridad)
+   ↓
+3. Mensaje de bienvenida y confirmación
+   ↓
+4. Configuración de Chaotic-AUR
+   ↓
+5. Instalación de dependencias oficiales
+   ↓
+6. Instalación de dependencias Chaotic
+   ↓
+7. Instalación de dependencias AUR
+   ↓
+8. Configuración de dotbare
+   ↓
+9. Finalización exitosa
+```
+
+---
+
+## 🤝 Contribuir
+
+Las contribuciones son bienvenidas. Por favor:
+
+1. Fork el repositorio
+2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
+3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
+4. Push a la rama (`git push origin feature/AmazingFeature`)
+5. Abre un Pull Request
+
+### Estándares de Código
+
+- Usa `shellcheck` para verificar tu código
+- Usa `shfmt` para formatear tu código
+- Mantén el estilo consistente con el código existente
+- Añade comentarios en español para nuevas funciones
+
+---
+
+## 📄 Licencia
+
+Este proyecto está licenciado bajo la **GNU General Public License v3.0** (GPL-3.0).
+
+Ver el archivo [LICENSE](LICENSE) para más detalles.
+
+---
+
+## 👤 Autor
+
+**Roberto Flores**
+
+- GitHub: [@25ASAB015](https://github.com/25ASAB015)
+- Email: 25ASAB015@ujmd.edu.sv
+
+---
+
+## 🙏 Agradecimientos
+
+- **dotbare**: Por proporcionar una herramienta excelente para gestión de dotfiles
+- **Chaotic-AUR**: Por ofrecer paquetes AUR pre-compilados
+- **Comunidad de Arch Linux**: Por mantener un ecosistema robusto y confiable
+
+---
+
+<div align="center">
+
+**⭐ Si este proyecto te ha sido útil, considera darle una estrella ⭐**
+
+Hecho con ❤️ para la comunidad de Arch Linux
+
+</div>
+
