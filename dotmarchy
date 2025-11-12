@@ -56,6 +56,7 @@ CNC=$(tput sgr0)    # Restablecer colores
 DRY_RUN=0
 FORCE=0
 VERBOSE=0
+INSTALL_EXTRAS=0
 REPO_URL="git@github.com:25asab015/dotfiles.git"
 DOTBARE_DIR_DEFAULT="$HOME/.cfg"
 DOTBARE_TREE_DEFAULT="$HOME"
@@ -270,6 +271,7 @@ Uso: $(basename "$0") [opciones] [REPO_URL]
 
 Opciones:
   --repo URL      Especifica el repositorio de dotfiles a usar
+  --extras        Instala paquetes adicionales opcionales además de los core
   -h, --help      Muestra esta ayuda y sale
 
 Posicional:
@@ -278,6 +280,7 @@ Posicional:
 Ejemplos:
   $(basename "$0") --repo https://github.com/yo/mis-dotfiles.git
   $(basename "$0") git@github.com:yo/mis-dotfiles.git
+  $(basename "$0") --extras
 EOF
 }
 
@@ -288,6 +291,9 @@ parse_args() {
 		--repo)
 			shift || true
 			REPO_URL="${1:-$REPO_URL}"
+			;;
+		--extras)
+			INSTALL_EXTRAS=1
 			;;
 		-h | --help)
 			usage
@@ -432,6 +438,15 @@ install_dependencies() {
 
 	# Lista de dependencias (repos oficiales)
 	dependencies="tree bat highlight ruby-coderay git-delta diff-so-fancy"
+	
+	# Paquetes opcionales adicionales (solo con --extras)
+	extra_dependencies="neovim tmux htop ripgrep fd fzf"
+	
+	# Si --extras está activado, agregar paquetes extras
+	if [ "$INSTALL_EXTRAS" -eq 1 ]; then
+		dependencies="$dependencies $extra_dependencies"
+		printf "\n%b\n" "${BLD}${CYE}[--extras] Incluyendo paquetes adicionales opcionales${CNC}"
+	fi
 
 	printf "\n%b\n\n" "${BLD}${CBL}Verificando las dependencias necesarias...${CNC}"
 	sleep 2
@@ -493,6 +508,15 @@ install_chaotic_dependencies() {
 
 	# Lista de dependencias (chaotic)
 	chaotic_dependencies="paru"
+	
+	# Paquetes opcionales adicionales (solo con --extras)
+	extra_chaotic_dependencies="brave-bin visual-studio-code-bin"
+	
+	# Si --extras está activado, agregar paquetes extras
+	if [ "$INSTALL_EXTRAS" -eq 1 ]; then
+		chaotic_dependencies="$chaotic_dependencies $extra_chaotic_dependencies"
+		printf "\n%b\n" "${BLD}${CYE}[--extras] Incluyendo paquetes adicionales opcionales desde Chaotic-AUR${CNC}"
+	fi
 
 	printf "%b\n\n" "${BLD}${CBL}Verificando las dependencias necesarias...${CNC}"
 	sleep 2
@@ -554,6 +578,15 @@ install_aur_dependencies() {
 
 	# Lista de paquetes AUR adicionales
 	aur_apps="dotbare"
+	
+	# Paquetes opcionales adicionales (solo con --extras)
+	extra_aur_apps="zsh-theme-powerlevel10k-git zsh-autosuggestions zsh-syntax-highlighting"
+	
+	# Si --extras está activado, agregar paquetes extras
+	if [ "$INSTALL_EXTRAS" -eq 1 ]; then
+		aur_apps="$aur_apps $extra_aur_apps"
+		printf "\n%b\n" "${BLD}${CYE}[--extras] Incluyendo paquetes adicionales opcionales desde AUR${CNC}"
+	fi
 
 	printf "%b\n\n" "${BLD}${CBL}Verificando las dependencias necesarias...${CNC}"
 	sleep 2
