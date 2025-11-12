@@ -221,6 +221,44 @@ normalize_repo_url() {
 	echo "$url" | tr '[:upper:]' '[:lower:]'
 }
 
+# Convierte URL SSH a HTTPS
+ssh_to_https() {
+	url="$1"
+	# ssh: git@github.com:owner/repo -> https://github.com/owner/repo
+	if [[ "$url" =~ ^git@([^:]+):(.+)$ ]]; then
+		host="${BASH_REMATCH[1]}"
+		path="${BASH_REMATCH[2]}"
+		# Si no termina en .git, agregarlo
+		[[ "$path" =~ \.git$ ]] || path="${path}.git"
+		echo "https://${host}/${path}"
+		return 0
+	fi
+	# Si ya es HTTPS, devolverla tal cual
+	echo "$url"
+}
+
+# Verifica si SSH está disponible para GitHub
+check_ssh_auth() {
+	# Intenta una conexión SSH a GitHub (timeout corto para no bloquear)
+	# GitHub responde con "Hi username! You've successfully authenticated" si funciona
+	# o "Permission denied" si no hay autenticación
+	ssh_output=$(ssh -T -o ConnectTimeout=5 -o StrictHostKeyChecking=no git@github.com 2>&1)
+	ssh_exit=$?
+	
+	# Si la salida contiene "successfully authenticated", SSH está configurado
+	if echo "$ssh_output" | grep -qi "successfully authenticated"; then
+		return 0
+	fi
+	
+	# Si el código de salida es 1 y contiene "Permission denied", no hay autenticación
+	if [ "$ssh_exit" -eq 1 ] && echo "$ssh_output" | grep -qi "permission denied\|publickey"; then
+		return 1
+	fi
+	
+	# Otros errores (timeout, red, etc.) - asumir que no hay SSH disponible
+	return 1
+}
+
 #==================================================
 # Argumentos CLI (parseo de flags)
 #==================================================
@@ -629,16 +667,50 @@ configure_dotbare() {
 
 	if [ ! -d "$DOTBARE_DIR" ]; then
 		printf "%b\n" "${BLD}${CBL}Inicializando dotbare con tu repositorio...${CNC}"
-		if dotbare finit -u "$REPO_URL" 2>>"$ERROR_LOG"; then
+		
+		# Determinar URL a usar (SSH o HTTPS)
+		FINAL_REPO_URL="$REPO_URL"
+		
+		# Si la URL es SSH, verificar autenticación
+		if [[ "$REPO_URL" =~ ^git@ ]]; then
+			if ! check_ssh_auth; then
+				# No hay autenticación SSH, convertir a HTTPS
+				FINAL_REPO_URL=$(ssh_to_https "$REPO_URL")
+				printf "%b\n" "${BLD}${CYE}SSH no disponible. Usando HTTPS: ${CBL}${FINAL_REPO_URL}${CNC}"
+			else
+				printf "%b\n" "${BLD}${CGR}Autenticación SSH detectada. Usando SSH.${CNC}"
+			fi
+		fi
+		
+		# Intentar inicializar con la URL determinada
+		if dotbare finit -u "$FINAL_REPO_URL" 2>>"$ERROR_LOG"; then
 			printf "%b\n" "${BLD}${CGR}dotbare inicializado correctamente!${CNC}"
 		else
-			log_error "Error al inicializar dotbare"
-			printf "%b\n" "${BLD}${CRE}Error al inicializar dotbare${CNC}"
-			return 1
+			# Si falló y era SSH, intentar con HTTPS como fallback
+			if [[ "$REPO_URL" =~ ^git@ ]] && [ "$FINAL_REPO_URL" = "$REPO_URL" ]; then
+				HTTPS_URL=$(ssh_to_https "$REPO_URL")
+				printf "%b\n" "${BLD}${CYE}Falló con SSH. Intentando con HTTPS: ${CBL}${HTTPS_URL}${CNC}"
+				if dotbare finit -u "$HTTPS_URL" 2>>"$ERROR_LOG"; then
+					FINAL_REPO_URL="$HTTPS_URL"
+					printf "%b\n" "${BLD}${CGR}dotbare inicializado correctamente con HTTPS!${CNC}"
+				else
+					log_error "Error al inicializar dotbare (intentó SSH y HTTPS)"
+					printf "%b\n" "${BLD}${CRE}Error al inicializar dotbare${CNC}"
+					printf "%b\n" "${BLD}${CYE}Verifica que el repositorio existe y es accesible.${CNC}"
+					return 1
+				fi
+			else
+				log_error "Error al inicializar dotbare"
+				printf "%b\n" "${BLD}${CRE}Error al inicializar dotbare${CNC}"
+				printf "%b\n" "${BLD}${CYE}Verifica que el repositorio existe y es accesible.${CNC}"
+				return 1
+			fi
 		fi
 	fi
 
-	printf "%b\n" "${BLD}${CGR}dotbare listo! (${CBL}${DOTBARE_DIR}${CGR} ↔ ${CBL}${REPO_URL}${CGR})${CNC}"
+	# Usar FINAL_REPO_URL si está definida, sino REPO_URL
+	DISPLAY_URL="${FINAL_REPO_URL:-$REPO_URL}"
+	printf "%b\n" "${BLD}${CGR}dotbare listo! (${CBL}${DOTBARE_DIR}${CGR} ↔ ${CBL}${DISPLAY_URL}${CGR})${CNC}"
 	sleep 2
 }
 
