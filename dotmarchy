@@ -21,42 +21,50 @@
 # 	Licenciado bajo GPL-3.0
 
 # 	Índice rápido de secciones:
-#  	1) Apariencia y opciones (colores, flags: --extras, --repo, rutas)
+#  	1) Apariencia y opciones (colores, flags: --extras, --setup-env, --repo, rutas)
 #  	2) Logging y utilidades (log, info, debug, tiempo)
 #  	3) Encabezado visual (logo ASCII)
 #  	4) Manejo de errores (log_error, trap)
 #  	5) Utilidades internas (run, require_cmd, normalize_repo_url, is_installed)
 #  	6) Argumentos CLI (parseo de flags)
-#  	7) Interacción con usuario (welcome con detección de modo --extras)
+#  	7) Interacción con usuario (welcome con detección de modos)
 #  	8) Dependencias:
 #  	   - Configuración del repositorio Chaotic-AUR
 #  	   - Instalación desde repositorios oficiales (pacman)
 #  	   - Instalación desde Chaotic-AUR (paru pre-compilado)
 #  	   - Instalación desde AUR (compilación con paru)
 #  	   - Instalación de paquetes npm globales (solo con --extras)
-#  	9) dotbare (configuración del gestor de dotfiles)
-#  	10) Main (flujo principal de ejecución)
+#  	9) Configuración del entorno de desarrollo (solo con --setup-env)
+#  	   - Funciones helper: add_to_shell_config, clone_git_repo, download_script
+#  	   - Lectura de archivo de configuración: ~/.config/dotmarchy/setup.conf
+#  	   - Creación de directorios, clonado de repos, descarga de scripts
+#  	10) dotbare (configuración del gestor de dotfiles)
+#  	11) Main (flujo principal de ejecución)
 
 # Características principales:
 #   ✓ Sistema de paquetes core + extras personalizable
 #   ✓ Instalación desde 4 fuentes: pacman, Chaotic-AUR, AUR, npm
+#   ✓ Configuración de entorno mediante archivo (~/.config/dotmarchy/setup.conf)
 #   ✓ Detección inteligente de paquetes ya instalados
 #   ✓ Verificación post-instalación y logging de errores
 #   ✓ Respaldos automáticos de configuraciones existentes
 #   ✓ Soporte SSH/HTTPS para repositorios de dotfiles
+#   ✓ Operaciones idempotentes (puede ejecutarse múltiples veces)
 
 # Uso rápido:
-#   dotmarchy                           # Instalación básica (9 paquetes core)
-#   dotmarchy --extras                  # Instalación completa (21 paquetes)
+#   dotmarchy                           # Instalación básica (paquetes core)
+#   dotmarchy --extras                  # Instalación completa (core + extras)
+#   dotmarchy --setup-env               # Configurar entorno de desarrollo
+#   dotmarchy --extras --setup-env      # Paquetes extras + configuración de entorno
 #   dotmarchy --repo URL                # Con repositorio personalizado
-#   dotmarchy --extras --repo URL       # Combinación de opciones
 #   dotmarchy --help                    # Muestra ayuda completa
 
 # Ejemplos:
 #   dotmarchy
 #   dotmarchy --extras
+#   dotmarchy --setup-env
+#   dotmarchy --extras --setup-env --repo git@github.com:usuario/dotfiles.git
 #   dotmarchy --repo https://github.com/usuario/dotfiles.git
-#   dotmarchy --extras --repo git@github.com:usuario/dotfiles.git
 #   DRY_RUN=1 dotmarchy --extras       # Modo prueba (sin instalar)
 #   VERBOSE=1 dotmarchy --extras       # Modo verbose (depuración)
 #==================================================
@@ -68,21 +76,34 @@ set -Eeuo pipefail
 # Apariencia (colores) y opciones
 #==================================================
 
-CRE=$(tput setaf 1) # Rojo
-CYE=$(tput setaf 3) # Amarillo
-CGR=$(tput setaf 2) # Verde
-CBL=$(tput setaf 4) # Azul
-BLD=$(tput bold)    # Negrita
-CNC=$(tput sgr0)    # Restablecer colores
+CRE=$(tput setaf 1 2>/dev/null || echo '') # Rojo
+CYE=$(tput setaf 3 2>/dev/null || echo '') # Amarillo
+CGR=$(tput setaf 2 2>/dev/null || echo '') # Verde
+CBL=$(tput setaf 4 2>/dev/null || echo '') # Azul
+BLD=$(tput bold 2>/dev/null || echo '')    # Negrita
+CNC=$(tput sgr0 2>/dev/null || echo '')    # Restablecer colores
 
 # Opciones por defecto
 DRY_RUN=0
 FORCE=0
 VERBOSE=0
 INSTALL_EXTRAS=0
+SETUP_ENVIRONMENT=0
 REPO_URL="git@github.com:25asab015/dotfiles.git"
 DOTBARE_DIR_DEFAULT="$HOME/.cfg"
 DOTBARE_TREE_DEFAULT="$HOME"
+
+# Rutas de configuración
+SETUP_CONFIG="$HOME/.config/dotmarchy/setup.conf"
+
+# Paquetes CORE (siempre se instalan)
+CORE_DEPENDENCIES="tree bat highlight ruby-coderay git-delta diff-so-fancy npm"
+
+# Paquetes extras por defecto (pueden ser sobrescritos por SETUP_CONFIG)
+DEFAULT_EXTRA_DEPENDENCIES="neovim tmux htop ripgrep fd fzf"
+DEFAULT_EXTRA_CHAOTIC_DEPENDENCIES="brave-bin visual-studio-code-bin"
+DEFAULT_EXTRA_AUR_APPS="zsh-theme-powerlevel10k-git zsh-autosuggestions zsh-syntax-highlighting"
+DEFAULT_EXTRA_NPM_PACKAGES="@fission-ai/openspec"
 
 # Constantes y rutas
 ERROR_LOG="$HOME/.local/share/dotmarchy/install_errors.log" # Log de errores
@@ -295,15 +316,20 @@ Uso: $(basename "$0") [opciones] [REPO_URL]
 Opciones:
   --repo URL      Especifica el repositorio de dotfiles a usar
   --extras        Instala paquetes adicionales opcionales además de los core
+  --setup-env     Configura entorno de desarrollo (directorios, repos, scripts)
   -h, --help      Muestra esta ayuda y sale
 
 Posicional:
   REPO_URL        Alternativamente puedes pasar la URL del repo como primer argumento
 
+Archivo de configuración:
+  ~/.config/dotmarchy/setup.conf   Define configuración para --setup-env
+
 Ejemplos:
   $(basename "$0") --repo https://github.com/yo/mis-dotfiles.git
   $(basename "$0") git@github.com:yo/mis-dotfiles.git
   $(basename "$0") --extras
+  $(basename "$0") --extras --setup-env
 EOF
 }
 
@@ -317,6 +343,9 @@ parse_args() {
 			;;
 		--extras)
 			INSTALL_EXTRAS=1
+			;;
+		--setup-env)
+			SETUP_ENVIRONMENT=1
 			;;
 		-h | --help)
 			usage
@@ -347,45 +376,181 @@ is_installed() {
 
 # Mensaje de bienvenida y confirmación de continuación
 welcome() {
-	clear
+	clear 2>/dev/null || true
 	logo "Bienvenido a dotmarchy, $USER"
 
-	printf "%b" "${BLD}${CGR}Este script instalará y configurará tus dotfiles de forma segura y automatizada. ¿Qué hará exactamente?
+	# Encabezado principal
+	printf "%b" "${BLD}${CGR}Este script instalará y configurará tus dotfiles de forma segura y automatizada.${CNC}
 
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Actualizará tu sistema con ${BLD}pacman -Syu${CNC}
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Configurará el repositorio ${BLD}Chaotic-AUR${CNC} para instalación rápida de paquetes AUR
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Instalará dependencias desde múltiples fuentes:
-      ${BLD}→${CNC} Repositorios oficiales de Arch (pacman)
-      ${BLD}→${CNC} Repositorio Chaotic-AUR (paquetes AUR pre-compilados)
-      ${BLD}→${CNC} AUR (Arch User Repository vía paru)
-      ${BLD}→${CNC} NPM (paquetes Node.js globales)"
+"
+
+	# ===== SECCIÓN 1: OPERACIONES BÁSICAS (siempre se ejecutan) =====
+	local core_count=$(echo "$CORE_DEPENDENCIES" | wc -w)
 	
-	# Mostrar información adicional si --extras está activado
+	printf "%b" "${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CBL}  OPERACIONES BÁSICAS ${CGR}(se ejecutarán siempre)${CNC}
+${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+  ${CGR}✓${CNC} Actualización del sistema con ${BLD}pacman -Syu${CNC}
+  ${CGR}✓${CNC} Configuración del repositorio ${BLD}Chaotic-AUR${CNC}
+  ${CGR}✓${CNC} Instalación de paquetes CORE (${CYE}${core_count}${CNC} paquetes):
+      ${BLD}→${CNC} ${CYE}${CORE_DEPENDENCIES}${CNC}
+  ${CGR}✓${CNC} Configuración de ${BLD}dotbare${CNC} para gestión de dotfiles
+  ${CGR}✓${CNC} Clonado de repositorio: ${BLD}${CBL}$(basename "$REPO_URL" .git)${CNC}
+  ${CGR}✓${CNC} Respaldos automáticos de configuraciones existentes
+
+"
+
+	# ===== SECCIÓN 2: PAQUETES EXTRAS (opcional) =====
 	if [ "$INSTALL_EXTRAS" -eq 1 ]; then
+		# Cargar configuración para obtener paquetes reales que se instalarán
+		local extra_dependencies="$DEFAULT_EXTRA_DEPENDENCIES"
+		local extra_chaotic_dependencies="$DEFAULT_EXTRA_CHAOTIC_DEPENDENCIES"
+		local extra_aur_apps="$DEFAULT_EXTRA_AUR_APPS"
+		local extra_npm_packages="$DEFAULT_EXTRA_NPM_PACKAGES"
+		
+		if [ -f "$SETUP_CONFIG" ]; then
+			# shellcheck source=/dev/null
+			source "$SETUP_CONFIG" 2>/dev/null || true
+			[ -n "${EXTRA_DEPENDENCIES:-}" ] && extra_dependencies="$EXTRA_DEPENDENCIES"
+			[ -n "${EXTRA_CHAOTIC_DEPENDENCIES:-}" ] && extra_chaotic_dependencies="$EXTRA_CHAOTIC_DEPENDENCIES"
+			[ -n "${EXTRA_AUR_APPS:-}" ] && extra_aur_apps="$EXTRA_AUR_APPS"
+			[ -n "${EXTRA_NPM_PACKAGES:-}" ] && extra_npm_packages="$EXTRA_NPM_PACKAGES"
+		fi
+		
+		# Contar paquetes reales
+		local dev_count=$(echo "$extra_dependencies" | wc -w)
+		local chaotic_count=$(echo "$extra_chaotic_dependencies" | wc -w)
+		local aur_count=$(echo "$extra_aur_apps" | wc -w)
+		local npm_count=$(echo "$extra_npm_packages" | wc -w)
+		local total_extras=$((dev_count + chaotic_count + aur_count + npm_count))
+		
+		printf "%b" "${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CBL}  PAQUETES EXTRAS ${CGR}(--extras ACTIVADO ✓)${CNC}
+${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+  ${CGR}✓${CNC} ${BLD}Total de paquetes extras a instalar: ${CYE}$total_extras${CNC}
+
+"
+		
+		if [ "$dev_count" -gt 0 ]; then
+			printf "%b" "  ${CGR}✓${CNC} Paquetes desde repositorios oficiales (${CYE}$dev_count${CNC}):
+      ${BLD}→${CNC} ${CYE}$extra_dependencies${CNC}
+"
+		fi
+		
+		if [ "$chaotic_count" -gt 0 ]; then
+			printf "%b" "  ${CGR}✓${CNC} Paquetes desde Chaotic-AUR (${CYE}$chaotic_count${CNC}):
+      ${BLD}→${CNC} ${CYE}$extra_chaotic_dependencies${CNC}
+"
+		fi
+		
+		if [ "$aur_count" -gt 0 ]; then
+			printf "%b" "  ${CGR}✓${CNC} Paquetes desde AUR (${CYE}$aur_count${CNC}):
+      ${BLD}→${CNC} ${CYE}$extra_aur_apps${CNC}
+"
+		fi
+		
+		if [ "$npm_count" -gt 0 ]; then
+			printf "%b" "  ${CGR}✓${CNC} Paquetes globales de npm (${CYE}$npm_count${CNC}):
+      ${BLD}→${CNC} ${CYE}$extra_npm_packages${CNC}
+"
+		fi
+		
 		printf "%b" "
-  ${BLD}${CYE}[${CBL}★${CYE}]${CNC} ${BLD}${CBL}Modo --extras activado:${CNC} Se instalarán paquetes adicionales opcionales
-      ${BLD}→${CNC} Herramientas de desarrollo (neovim, tmux, htop, ripgrep, fd, fzf)
-      ${BLD}→${CNC} Aplicaciones (brave-bin, visual-studio-code-bin)
-      ${BLD}→${CNC} Shell tools (powerlevel10k, zsh-autosuggestions, zsh-syntax-highlighting)
-      ${BLD}→${CNC} NPM packages (@fission-ai/openspec)
+  ${CBL}ℹ${CNC}  Personaliza estos paquetes en: ${CBL}${SETUP_CONFIG}${CNC}
+
+"
+	else
+		printf "%b" "${BLD}${CYE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CYE}  PAQUETES EXTRAS ${CRE}(--extras NO activado ✗)${CNC}
+${BLD}${CYE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+  ${CYE}⚠${CNC}  Solo se instalarán los ${core_count} paquetes CORE básicos.
+  
+  ${CGR}💡 Activa --extras para instalar paquetes adicionales desde:${CNC}
+      ${BLD}→${CNC} Repositorios oficiales (pacman)
+      ${BLD}→${CNC} Chaotic-AUR (binarios precompilados)
+      ${BLD}→${CNC} AUR (compilación local)
+      ${BLD}→${CNC} npm (paquetes globales)
+
+  ${BLD}Uso:${CNC} ${CYE}dotmarchy --extras${CNC}
+  ${BLD}Personaliza:${CNC} ${CBL}${SETUP_CONFIG}${CNC}
+
 "
 	fi
-	
-	printf "%b" "
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Instalará y configurará ${BLD}dotbare${CNC} para gestionar tus dotfiles con Git
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Creará ${BLD}respaldos automáticos${CNC} antes de sobrescribir configuraciones existentes
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Clonará y aplicará tu repositorio de dotfiles: ${BLD}${CBL}$(basename "$REPO_URL" .git)${CNC}
 
-${BLD}${CGR}[${CRE}!${CGR}]${CNC} ${BLD}${CRE}Garantías de seguridad:${CNC}
-  ${BLD}→${CNC} NO requiere ni permite ejecución como root
-  ${BLD}→${CNC} NO modifica configuraciones críticas del sistema
-  ${BLD}→${CNC} Todos los cambios son reversibles desde los backups automáticos
-  ${BLD}→${CNC} Logging completo de errores en ~/.local/share/dotmarchy/install_errors.log
+	# ===== SECCIÓN 3: CONFIGURACIÓN DE ENTORNO (opcional) =====
+	if [ "$SETUP_ENVIRONMENT" -eq 1 ]; then
+		# Contar elementos desde el archivo de configuración si existe
+		local dir_count=0
+		local repo_count=0
+		local script_count=0
+		local shell_count=0
+		
+		if [ -f "$SETUP_CONFIG" ]; then
+			# shellcheck source=/dev/null
+			source "$SETUP_CONFIG" 2>/dev/null || true
+			dir_count=${#DIRECTORIES[@]}
+			repo_count=${#GIT_REPOS[@]}
+			script_count=${#SCRIPTS[@]}
+			shell_count=${#SHELL_LINES[@]}
+		fi
+		
+		printf "%b" "${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CBL}  CONFIGURACIÓN DE ENTORNO ${CGR}(--setup-env ACTIVADO ✓)${CNC}
+${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+"
+		if [ -f "$SETUP_CONFIG" ] && [ $((dir_count + repo_count + script_count + shell_count)) -gt 0 ]; then
+			printf "%b" "  ${CGR}✓${CNC} Configuración cargada desde: ${CBL}$SETUP_CONFIG${CNC}
+      ${BLD}→${CNC} ${CYE}$dir_count${CNC} directorios a crear
+      ${BLD}→${CNC} ${CYE}$repo_count${CNC} repositorios Git a clonar
+      ${BLD}→${CNC} ${CYE}$script_count${CNC} scripts a descargar
+      ${BLD}→${CNC} ${CYE}$shell_count${CNC} líneas a agregar a la shell config
+
+"
+		else
+			printf "%b" "  ${CYE}⚠${CNC}  Archivo de configuración no encontrado o vacío
+  ${CBL}ℹ${CNC}  Crea el archivo: ${CBL}${SETUP_CONFIG}${CNC}
+  ${CBL}ℹ${CNC}  Usa como plantilla: ${CBL}setup.conf.example${CNC}
+
+"
+		fi
+	else
+		printf "%b" "${BLD}${CYE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CYE}  CONFIGURACIÓN DE ENTORNO ${CRE}(--setup-env NO activado ✗)${CNC}
+${BLD}${CYE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+  ${CYE}⚠${CNC}  No se configurará el entorno de desarrollo.
+  
+  ${CGR}💡 Activa --setup-env para:${CNC}
+      ${BLD}→${CNC} Crear directorios de trabajo automáticamente
+      ${BLD}→${CNC} Clonar repositorios Git necesarios
+      ${BLD}→${CNC} Descargar scripts y herramientas
+      ${BLD}→${CNC} Configurar tu shell (.zshrc/.bashrc)
+
+  ${BLD}Uso:${CNC} ${CYE}dotmarchy --setup-env${CNC}
+  ${BLD}Config:${CNC} ${CBL}${SETUP_CONFIG}${CNC}
+
+"
+	fi
+
+	# ===== SECCIÓN 4: GARANTÍAS DE SEGURIDAD =====
+	printf "%b" "${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CBL}  GARANTÍAS DE SEGURIDAD${CNC}
+${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+  ${CGR}✓${CNC} NO requiere ni permite ejecución como root
+  ${CGR}✓${CNC} NO modifica configuraciones críticas del sistema
+  ${CGR}✓${CNC} Todos los cambios son reversibles (backups automáticos)
+  ${CGR}✓${CNC} Logging completo en: ${CBL}${ERROR_LOG}${CNC}
 
 "
 
+	# ===== PROMPT DE CONFIRMACIÓN =====
 	while :; do
-		printf " %b" "${BLD}${CGR}¿Deseas continuar?${CNC} [s/N]: "
+		printf " %b" "${BLD}${CGR}¿Deseas continuar con esta configuración?${CNC} [s/N]: "
 		read -r yn
 		case "$yn" in
 		[SsYy])
@@ -408,7 +573,7 @@ ${BLD}${CGR}[${CRE}!${CGR}]${CNC} ${BLD}${CRE}Garantías de seguridad:${CNC}
 
 # Añade el repositorio chaotic-aur (keyring, mirrorlist y entrada en pacman.conf)
 add_chaotic_repo() {
-	clear
+	clear 2>/dev/null || true
 	logo "Agregar el repositorio chaotic-aur"
 	repo_name="chaotic-aur"
 	key_id="3056513887B78AEB"
@@ -472,22 +637,30 @@ add_chaotic_repo() {
 #--------------------------------------------------
 
 install_dependencies() {
-	clear
+	clear 2>/dev/null || true
 	logo "Instalando las dependencias necesarias desde los repositorios oficiales..."
 	sleep 2
 
 	# Verificar si reflector está instalado y actualizar el mirrorlist
 	sudo pacman -Syy
 
-	# Lista de dependencias (repos oficiales)
-	dependencies="tree bat highlight ruby-coderay git-delta diff-so-fancy npm"
-	
-	# Paquetes opcionales adicionales (solo con --extras)
-	extra_dependencies="neovim tmux htop ripgrep fd fzf"
+	# Lista de dependencias (repos oficiales) - usar variable global CORE_DEPENDENCIES
+	dependencies="$CORE_DEPENDENCIES"
 	
 	# Si --extras está activado, agregar paquetes extras
 	if [ "$INSTALL_EXTRAS" -eq 1 ]; then
-		dependencies="$dependencies $extra_dependencies"
+		# Cargar desde config o usar defaults
+		local extra_deps=""
+		if [ -f "$SETUP_CONFIG" ]; then
+			# shellcheck source=/dev/null
+			source "$SETUP_CONFIG"
+			# Usar EXTRA_DEPENDENCIES del config o default
+			extra_deps="${EXTRA_DEPENDENCIES[*]:-$DEFAULT_EXTRA_DEPENDENCIES}"
+		else
+			extra_deps="$DEFAULT_EXTRA_DEPENDENCIES"
+		fi
+		
+		dependencies="$dependencies $extra_deps"
 		printf "\n%b\n" "${BLD}${CYE}[--extras] Incluyendo paquetes adicionales opcionales${CNC}"
 	fi
 
@@ -545,19 +718,27 @@ install_dependencies() {
 #--------------------------------------------------
 
 install_chaotic_dependencies() {
-	clear
+	clear 2>/dev/null || true
 	logo "Instalando las dependencias necesarias desde el repositorio chaotic"
 	sleep 2
 
 	# Lista de dependencias (chaotic)
 	chaotic_dependencies="paru"
 	
-	# Paquetes opcionales adicionales (solo con --extras)
-	extra_chaotic_dependencies="brave-bin visual-studio-code-bin"
-	
 	# Si --extras está activado, agregar paquetes extras
 	if [ "$INSTALL_EXTRAS" -eq 1 ]; then
-		chaotic_dependencies="$chaotic_dependencies $extra_chaotic_dependencies"
+		# Cargar desde config o usar defaults
+		local extra_chaotic=""
+		if [ -f "$SETUP_CONFIG" ]; then
+			# shellcheck source=/dev/null
+			source "$SETUP_CONFIG"
+			# Usar EXTRA_CHAOTIC_DEPENDENCIES del config o default
+			extra_chaotic="${EXTRA_CHAOTIC_DEPENDENCIES[*]:-$DEFAULT_EXTRA_CHAOTIC_DEPENDENCIES}"
+		else
+			extra_chaotic="$DEFAULT_EXTRA_CHAOTIC_DEPENDENCIES"
+		fi
+		
+		chaotic_dependencies="$chaotic_dependencies $extra_chaotic"
 		printf "\n%b\n" "${BLD}${CYE}[--extras] Incluyendo paquetes adicionales opcionales desde Chaotic-AUR${CNC}"
 	fi
 
@@ -615,19 +796,27 @@ install_chaotic_dependencies() {
 #--------------------------------------------------
 
 install_aur_dependencies() {
-	clear
+	clear 2>/dev/null || true
 	logo "Instalando las dependencias necesarias desde AUR..."
 	sleep 2
 
 	# Lista de paquetes AUR adicionales
 	aur_apps="dotbare"
 	
-	# Paquetes opcionales adicionales (solo con --extras)
-	extra_aur_apps="zsh-theme-powerlevel10k-git zsh-autosuggestions zsh-syntax-highlighting"
-	
 	# Si --extras está activado, agregar paquetes extras
 	if [ "$INSTALL_EXTRAS" -eq 1 ]; then
-		aur_apps="$aur_apps $extra_aur_apps"
+		# Cargar desde config o usar defaults
+		local extra_aur=""
+		if [ -f "$SETUP_CONFIG" ]; then
+			# shellcheck source=/dev/null
+			source "$SETUP_CONFIG"
+			# Usar EXTRA_AUR_APPS del config o default
+			extra_aur="${EXTRA_AUR_APPS[*]:-$DEFAULT_EXTRA_AUR_APPS}"
+		else
+			extra_aur="$DEFAULT_EXTRA_AUR_APPS"
+		fi
+		
+		aur_apps="$aur_apps $extra_aur"
 		printf "\n%b\n" "${BLD}${CYE}[--extras] Incluyendo paquetes adicionales opcionales desde AUR${CNC}"
 	fi
 
@@ -689,7 +878,7 @@ install_npm_dependencies() {
 		return 0
 	fi
 	
-	clear
+	clear 2>/dev/null || true
 	logo "Instalando paquetes npm globales..."
 	sleep 2
 	
@@ -699,8 +888,16 @@ install_npm_dependencies() {
 		return 1
 	fi
 
-	# Lista de paquetes npm opcionales (solo con --extras)
-	npm_packages="@fission-ai/openspec"
+	# Cargar lista de paquetes npm desde config o usar defaults
+	local npm_packages=""
+	if [ -f "$SETUP_CONFIG" ]; then
+		# shellcheck source=/dev/null
+		source "$SETUP_CONFIG"
+		# Usar EXTRA_NPM_PACKAGES del config o default
+		npm_packages="${EXTRA_NPM_PACKAGES[*]:-$DEFAULT_EXTRA_NPM_PACKAGES}"
+	else
+		npm_packages="$DEFAULT_EXTRA_NPM_PACKAGES"
+	fi
 	
 	printf "\n%b\n" "${BLD}${CYE}[--extras] Instalando paquetes npm globales...${CNC}"
 	printf "%b\n\n" "${BLD}${CBL}Verificando paquetes npm...${CNC}"
@@ -753,12 +950,240 @@ install_npm_dependencies() {
 }
 
 #==================================================
+# Configuración del entorno de desarrollo
+#==================================================
+
+#--------------------------------------------------
+# Funciones helper para configuración de entorno
+#--------------------------------------------------
+
+# Agrega una línea al archivo de configuración del shell de forma idempotente
+add_to_shell_config() {
+	local line="$1"
+	local description="${2:-configuration}"
+	local shell_rc=""
+	
+	# Detectar shell
+	if [ -f ~/.zshrc ]; then
+		shell_rc=~/.zshrc
+	elif [ -f ~/.bashrc ]; then
+		shell_rc=~/.bashrc
+	else
+		warn "No se encontró archivo de configuración de shell (.zshrc o .bashrc)"
+		return 1
+	fi
+	
+	# Verificar si ya existe (búsqueda exacta)
+	if grep -Fxq "$line" "$shell_rc"; then
+		printf "  %b\n" "${CBL}✓${CNC} ${description} ${BLD}(ya configurado en $(basename "$shell_rc"))${CNC}"
+		return 0
+	fi
+	
+	# Agregar con comentario
+	{
+		echo ""
+		echo "# Added by dotmarchy - $description"
+		echo "$line"
+	} >> "$shell_rc"
+	
+	printf "  %b\n" "${CGR}✓${CNC} Agregado ${BLD}${description}${CNC} a ${CBL}$(basename "$shell_rc")${CNC}"
+	return 0
+}
+
+# Clona un repositorio git de forma segura (idempotente)
+clone_git_repo() {
+	local url="$1"
+	local dest="$2"
+	
+	# Expandir ~ en el destino
+	local expanded_dest="${dest/#\~/$HOME}"
+	
+	# Extraer nombre del repo para display
+	local repo_name
+	repo_name=$(basename "$url" .git)
+	
+	# Verificar si ya existe
+	if [ -d "$expanded_dest" ]; then
+		printf "  %b\n" "${CBL}✓${CNC} ${BLD}${repo_name}${CNC} → ${dest} ${BLD}(ya existe)${CNC}"
+		return 0
+	fi
+	
+	printf "  %b\n" "${CYE}→${CNC} Clonando ${BLD}${repo_name}${CNC} → ${dest}..."
+	if git clone "$url" "$expanded_dest" >>"$ERROR_LOG" 2>&1; then
+		printf "    %b\n" "${CGR}✓ Clonado exitosamente${CNC}"
+		return 0
+	else
+		log_error "Error al clonar $url a $expanded_dest"
+		printf "    %b\n" "${CRE}✗ Error al clonar${CNC}"
+		return 1
+	fi
+}
+
+# Descarga un script de forma segura (idempotente)
+download_script() {
+	local url="$1"
+	local dest="$2"
+	
+	# Expandir ~ en el destino
+	local expanded_dest="${dest/#\~/$HOME}"
+	
+	# Extraer nombre del script
+	local script_name
+	script_name=$(basename "$dest")
+	
+	# Crear directorio padre si no existe
+	mkdir -p "$(dirname "$expanded_dest")"
+	
+	# Verificar si ya existe
+	if [ -f "$expanded_dest" ]; then
+		printf "  %b\n" "${CBL}✓${CNC} ${BLD}${script_name}${CNC} → ${dest} ${BLD}(ya existe)${CNC}"
+		return 0
+	fi
+	
+	printf "  %b\n" "${CYE}→${CNC} Descargando ${BLD}${script_name}${CNC} → ${dest}..."
+	if curl -sL "$url" > "$expanded_dest" 2>>"$ERROR_LOG"; then
+		chmod +x "$expanded_dest"
+		printf "    %b\n" "${CGR}✓ Descargado y hecho ejecutable${CNC}"
+		return 0
+	else
+		log_error "Error al descargar $url a $expanded_dest"
+		printf "    %b\n" "${CRE}✗ Error al descargar${CNC}"
+		return 1
+	fi
+}
+
+# Crea directorios de forma segura
+create_directories() {
+	local dirs=("$@")
+	local dir
+	local created=0
+	local existed=0
+	
+	for dir in "${dirs[@]}"; do
+		# Expandir ~ en el path
+		local expanded_dir="${dir/#\~/$HOME}"
+		
+		if [ -d "$expanded_dir" ]; then
+			printf "  %b\n" "${CBL}✓${CNC} ${dir} ${BLD}(ya existe)${CNC}"
+			: $((existed++))
+		else
+			if mkdir -p "$expanded_dir" 2>>"$ERROR_LOG"; then
+				printf "  %b\n" "${CGR}✓${CNC} ${BLD}${dir}${CNC} ${CGR}(creado)${CNC}"
+				: $((created++))
+			else
+				log_error "Error al crear directorio: $expanded_dir"
+				printf "  %b\n" "${CRE}✗${CNC} ${dir} ${CRE}(error)${CNC}"
+			fi
+		fi
+	done
+	
+	# Resumen
+	if [ $created -gt 0 ] || [ $existed -gt 0 ]; then
+		printf "\n"
+		[ $created -gt 0 ] && info "  → $created directorio(s) creado(s)"
+		[ $existed -gt 0 ] && info "  → $existed directorio(s) ya existía(n)"
+	fi
+}
+
+#--------------------------------------------------
+# Función principal de configuración del entorno
+#--------------------------------------------------
+
+setup_development_environment() {
+	# Solo ejecutar si --setup-env está activado
+	if [ "$SETUP_ENVIRONMENT" -ne 1 ]; then
+		return 0
+	fi
+	
+	clear 2>/dev/null || true
+	logo "Configurando entorno de desarrollo"
+	sleep 2
+	
+	printf "\n%b\n" "${BLD}${CYE}[--setup-env] Configurando entorno personalizado...${CNC}"
+	
+	# Verificar si existe el archivo de configuración
+	if [ ! -f "$SETUP_CONFIG" ]; then
+		warn "Archivo de configuración no encontrado: $SETUP_CONFIG"
+		info "Ejecuta el script sin configuración o crea el archivo de configuración."
+		info "Ejemplo de configuración en: https://github.com/25ASAB015/dotmarchy"
+		sleep 3
+		return 0
+	fi
+	
+	printf "%b\n\n" "${BLD}${CBL}Cargando configuración desde $SETUP_CONFIG...${CNC}"
+	
+	# Cargar configuración (source del archivo)
+	# shellcheck source=/dev/null
+	source "$SETUP_CONFIG"
+	
+	# 1. Crear directorios
+	if [ "${#DIRECTORIES[@]}" -gt 0 ]; then
+		printf "\n%b\n" "${BLD}${CGR}[${CYE}1${CGR}]${CNC} ${BLD}Creando estructura de directorios (${#DIRECTORIES[@]} total)...${CNC}\n"
+		create_directories "${DIRECTORIES[@]}"
+	fi
+	
+	# 2. Clonar repositorios git
+	if [ "${#GIT_REPOS[@]}" -gt 0 ]; then
+		printf "\n%b\n" "${BLD}${CGR}[${CYE}2${CGR}]${CNC} ${BLD}Clonando repositorios (${#GIT_REPOS[@]} total)...${CNC}"
+		local cloned=0
+		local skipped=0
+		for entry in "${GIT_REPOS[@]}"; do
+			# Buscar el último : antes de ~/ o / para dividir URL:DEST correctamente
+			# Esto maneja URLs con : (como https://)
+			if [[ "$entry" =~ ^(.+):([~/].*)$ ]]; then
+				url="${BASH_REMATCH[1]}"
+				dest="${BASH_REMATCH[2]}"
+				if clone_git_repo "$url" "$dest"; then
+					if [ -d "${dest/#\~/$HOME}/.git" ] || [ -d "${dest/#\~/$HOME}" ]; then
+						# Revisar si existía antes o se acaba de clonar
+						:
+					fi
+				fi
+			else
+				warn "Formato inválido en GIT_REPOS: $entry (esperado URL:DESTINO)"
+			fi
+		done
+		printf "\n"
+	fi
+	
+	# 3. Descargar scripts
+	if [ "${#SCRIPTS[@]}" -gt 0 ]; then
+		printf "\n%b\n" "${BLD}${CGR}[${CYE}3${CGR}]${CNC} ${BLD}Descargando scripts (${#SCRIPTS[@]} total)...${CNC}"
+		for entry in "${SCRIPTS[@]}"; do
+			# Buscar el último : antes de ~/ o / para dividir URL:DEST correctamente
+			if [[ "$entry" =~ ^(.+):([~/].*)$ ]]; then
+				url="${BASH_REMATCH[1]}"
+				dest="${BASH_REMATCH[2]}"
+				download_script "$url" "$dest"
+			else
+				warn "Formato inválido en SCRIPTS: $entry (esperado URL:DESTINO)"
+			fi
+		done
+		printf "\n"
+	fi
+	
+	# 4. Configurar shell
+	if [ "${#SHELL_LINES[@]}" -gt 0 ]; then
+		printf "\n%b\n" "${BLD}${CGR}[${CYE}4${CGR}]${CNC} ${BLD}Configurando shell (${#SHELL_LINES[@]} línea(s))...${CNC}"
+		for line in "${SHELL_LINES[@]}"; do
+			add_to_shell_config "$line" "environment setup"
+		done
+		printf "\n"
+	fi
+	
+	printf "\n%b\n\n" "${BLD}${CGR}✓ Configuración del entorno completada!${CNC}"
+	info "Nota: Reinicia tu shell o ejecuta 'source ~/.zshrc' (o ~/.bashrc) para aplicar cambios."
+	
+	sleep 3
+}
+
+#==================================================
 # Configuración de dotbare (gestión de dotfiles)
 #==================================================
 
 # Configura dotbare (repo bare de dotfiles) y ajusta remoto si es necesario
 configure_dotbare() {
-	clear
+	clear 2>/dev/null || true
 	logo "Configurando dotbare"
 	sleep 2
 
@@ -880,7 +1305,8 @@ main() {
 	install_aur_dependencies     # Instala paquetes desde AUR usando un helper (ej: paru)
 	install_npm_dependencies     # Instala paquetes npm globales (solo con --extras)
 
-	configure_dotbare # Inicializa y configura dotbare con el repositorio de dotfiles indicado
+	configure_dotbare                 # Inicializa y configura dotbare con el repositorio de dotfiles indicado
+	setup_development_environment     # Configura entorno de desarrollo (solo con --setup-env)
 }
 
 # Ejecuta el script

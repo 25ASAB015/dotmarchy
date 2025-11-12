@@ -242,9 +242,12 @@ Si deseas un entorno más completo con herramientas de desarrollo, aplicaciones 
 
 # Combinar con repositorio personalizado
 ./dotmarchy --extras --repo https://github.com/usuario/mis-dotfiles.git
+
+# Agregar configuración del entorno (con archivo de configuración)
+./dotmarchy --extras --setup-env
 ```
 
-**Paquetes incluidos con `--extras`:**
+**Paquetes por defecto con `--extras`** (personalizables vía `setup.conf`):
 
 **Herramientas de Desarrollo (Repositorios Oficiales):**
 - `neovim` - Editor de texto avanzado
@@ -287,6 +290,68 @@ Para ver todas las opciones disponibles:
 ./dotmarchy --help
 ```
 
+### Archivo de Configuración
+
+dotmarchy utiliza un archivo de configuración centralizado: `~/.config/dotmarchy/setup.conf`
+
+Este archivo controla:
+
+1. **Paquetes extras** (`--extras` flag) - Personaliza qué paquetes instalar
+2. **Configuración de entorno** (`--setup-env` flag) - Directorios, repos, scripts
+
+**Configuración:**
+
+```bash
+# Crear el archivo de configuración
+mkdir -p ~/.config/dotmarchy
+cp setup.conf.example ~/.config/dotmarchy/setup.conf
+
+# Editar según necesites
+nano ~/.config/dotmarchy/setup.conf
+```
+
+#### Personalizar Paquetes Extras
+
+Por defecto, `--extras` instala un conjunto de paquetes predefinidos. Puedes personalizarlos en el archivo de configuración:
+
+```bash
+# En ~/.config/dotmarchy/setup.conf
+
+# Paquetes oficiales (ejemplo: solo lo esencial)
+EXTRA_DEPENDENCIES=(
+    "neovim"
+    "tmux"
+)
+
+# Chaotic-AUR (ejemplo: solo VS Code)
+EXTRA_CHAOTIC_DEPENDENCIES=(
+    "visual-studio-code-bin"
+)
+
+# AUR (ejemplo: ninguno)
+EXTRA_AUR_APPS=()
+
+# NPM (ejemplo: herramientas de desarrollo)
+EXTRA_NPM_PACKAGES=(
+    "@fission-ai/openspec"
+    "typescript"
+    "prettier"
+)
+```
+
+**Sin configuración:** Se usan los paquetes predeterminados documentados más abajo.
+
+#### Configurar Entorno de Desarrollo
+
+Además de paquetes, puedes configurar tu entorno con `--setup-env`:
+
+- Creación de estructura de directorios
+- Clonado de repositorios (plugins, herramientas)
+- Descarga de scripts
+- Configuración de shell
+
+Ver `setup.conf.example` en el repositorio para un ejemplo completo de configuración.
+
 ### Ejemplos de Uso Completos
 
 ```bash
@@ -296,8 +361,14 @@ Para ver todas las opciones disponibles:
 # Instalación completa con extras
 ./dotmarchy --extras
 
-# Repositorio personalizado + extras
-./dotmarchy --extras --repo git@github.com:usuario/dotfiles.git
+# Configurar entorno (requiere archivo de configuración)
+./dotmarchy --setup-env
+
+# Todo junto: extras + configuración de entorno
+./dotmarchy --extras --setup-env
+
+# Repositorio personalizado + extras + entorno
+./dotmarchy --extras --setup-env --repo git@github.com:usuario/dotfiles.git
 
 # Modo dry-run para probar sin instalar
 DRY_RUN=1 ./dotmarchy --extras
@@ -462,7 +533,7 @@ El script está organizado en secciones claras y modulares:
 ### Flujo de Ejecución
 
 ```
-1. Parseo de argumentos (--extras, --repo, etc.)
+1. Parseo de argumentos (--extras, --setup-env, --repo, etc.)
    ↓
 2. Verificaciones iniciales (seguridad)
    ↓
@@ -480,7 +551,13 @@ El script está organizado en secciones claras y modulares:
    ↓
 9. Configuración de dotbare
    ↓
-10. Finalización exitosa
+10. Configuración del entorno (solo si --setup-env)
+    - Crear directorios
+    - Clonar repositorios
+    - Descargar scripts
+    - Configurar shell
+   ↓
+11. Finalización exitosa
 ```
 
 ---

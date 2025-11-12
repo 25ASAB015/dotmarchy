@@ -1,0 +1,81 @@
+# dotmarchy Configuration File
+# Copy this file to ~/.config/dotmarchy/setup.conf and customize it
+#
+# This file controls both:
+# 1. Extra packages installed with --extras flag
+# 2. Environment setup performed with --setup-env flag
+
+#==============================================================================
+# EXTRA PACKAGES (used with --extras flag)
+#==============================================================================
+
+# Extra packages from official Arch repositories
+# Installed via: pacman -S
+# Default: neovim tmux htop ripgrep fd fzf
+EXTRA_DEPENDENCIES=(
+    "neovim"      # Modern vim-based text editor
+    "tmux"        # Terminal multiplexer
+    "htop"        # Interactive process viewer
+    "ripgrep"     # Ultra-fast grep alternative (rg)
+    "fd"          # Fast find alternative
+    "fzf"         # Fuzzy finder for command-line
+)
+
+# Extra packages from Chaotic-AUR (pre-compiled AUR packages)
+# Installed via: pacman -S (after Chaotic-AUR is configured)
+# Default: brave-bin visual-studio-code-bin
+EXTRA_CHAOTIC_DEPENDENCIES=(
+    "brave-bin"              # Privacy-focused web browser
+    "visual-studio-code-bin" # Microsoft's code editor
+)
+
+# Extra packages from AUR (compiled from source)
+# Installed via: paru -S
+# Default: zsh-theme-powerlevel10k-git zsh-autosuggestions zsh-syntax-highlighting
+EXTRA_AUR_APPS=(
+    "zsh-theme-powerlevel10k-git"  # Powerful Zsh theme
+    "zsh-autosuggestions"          # Fish-like autosuggestions for Zsh
+    "zsh-syntax-highlighting"      # Syntax highlighting for Zsh
+)
+
+# Extra npm packages (installed globally)
+# Installed via: npm install -g
+# Default: @fission-ai/openspec
+EXTRA_NPM_PACKAGES=(
+    "@fission-ai/openspec"  # OpenSpec CLI tool
+)
+
+#==============================================================================
+# ENVIRONMENT SETUP (used with --setup-env flag)
+#==============================================================================
+
+# Directories to create
+# Format: Array of paths (supports ~)
+DIRECTORIES=(
+    "~/Programming/work"
+    "~/Programming/personal"
+    "~/.local/bin"
+    "~/src/tries"
+)
+
+# Git repositories to clone
+# Format: "URL:DESTINATION"
+GIT_REPOS=(
+    "https://github.com/tmux-plugins/tpm:~/.tmux/plugins/tpm"
+    "https://github.com/kazhala/scripts.git:~/Programming/scripts"
+)
+
+# Scripts to download
+# Format: "URL:DESTINATION"
+# Scripts will be made executable automatically
+SCRIPTS=(
+    "https://raw.githubusercontent.com/tobi/try/refs/heads/main/try.rb:~/.local/bin/try.rb"
+)
+
+# Lines to add to shell configuration
+# Format: Array of lines to add
+# Will be added idempotently (no duplicates)
+SHELL_LINES=(
+    'eval "$(ruby ~/.local/bin/try.rb init ~/src/tries)"'
+)
+
