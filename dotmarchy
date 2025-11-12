@@ -329,15 +329,35 @@ welcome() {
 
 	printf "%b" "${BLD}${CGR}Este script instalará y configurará tus dotfiles de forma segura y automatizada. ¿Qué hará exactamente?
 
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Actualizará tu sistema con pacman -Syu
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Añadirá el repositorio Chaotic-AUR para acelerar la instalación de paquetes AUR
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Instalará todas las dependencias necesarias (oficiales, Chaotic y AUR)
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Instalará y configurará dotbare para gestionar tus dotfiles
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Realizará un respaldo automático de tus configuraciones previas antes de sobrescribirlas
-  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Clonará y aplicará tu repositorio de dotfiles usando dotbare
+  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Actualizará tu sistema con ${BLD}pacman -Syu${CNC}
+  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Configurará el repositorio ${BLD}Chaotic-AUR${CNC} para instalación rápida de paquetes AUR
+  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Instalará dependencias desde múltiples fuentes:
+      ${BLD}→${CNC} Repositorios oficiales de Arch (pacman)
+      ${BLD}→${CNC} Repositorio Chaotic-AUR (paquetes AUR pre-compilados)
+      ${BLD}→${CNC} AUR (Arch User Repository vía paru)
+      ${BLD}→${CNC} NPM (paquetes Node.js globales)"
+	
+	# Mostrar información adicional si --extras está activado
+	if [ "$INSTALL_EXTRAS" -eq 1 ]; then
+		printf "%b" "
+  ${BLD}${CYE}[${CBL}★${CYE}]${CNC} ${BLD}${CBL}Modo --extras activado:${CNC} Se instalarán paquetes adicionales opcionales
+      ${BLD}→${CNC} Herramientas de desarrollo (neovim, tmux, htop, ripgrep, fd, fzf)
+      ${BLD}→${CNC} Aplicaciones (brave-bin, visual-studio-code-bin)
+      ${BLD}→${CNC} Shell tools (powerlevel10k, zsh-autosuggestions, zsh-syntax-highlighting)
+      ${BLD}→${CNC} NPM packages (@fission-ai/openspec)
+"
+	fi
+	
+	printf "%b" "
+  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Instalará y configurará ${BLD}dotbare${CNC} para gestionar tus dotfiles con Git
+  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Creará ${BLD}respaldos automáticos${CNC} antes de sobrescribir configuraciones existentes
+  ${BLD}${CGR}[${CYE}i${CGR}]${CNC} Clonará y aplicará tu repositorio de dotfiles: ${BLD}${CBL}$(basename "$REPO_URL" .git)${CNC}
 
-${BLD}${CGR}[${CRE}!${CGR}]${CNC} ${BLD}${CRE}Este script NO modifica configuraciones críticas del sistema${CNC}
-${BLD}${CGR}[${CRE}!${CGR}]${CNC} ${BLD}${CRE}Puedes restaurar tus configuraciones anteriores desde la carpeta de backup creada automáticamente${CNC}
+${BLD}${CGR}[${CRE}!${CGR}]${CNC} ${BLD}${CRE}Garantías de seguridad:${CNC}
+  ${BLD}→${CNC} NO requiere ni permite ejecución como root
+  ${BLD}→${CNC} NO modifica configuraciones críticas del sistema
+  ${BLD}→${CNC} Todos los cambios son reversibles desde los backups automáticos
+  ${BLD}→${CNC} Logging completo de errores en ~/.local/share/dotmarchy/install_errors.log
 
 "
 
@@ -437,7 +457,7 @@ install_dependencies() {
 	sudo pacman -Syy
 
 	# Lista de dependencias (repos oficiales)
-	dependencies="tree bat highlight ruby-coderay git-delta diff-so-fancy"
+	dependencies="tree bat highlight ruby-coderay git-delta diff-so-fancy npm"
 	
 	# Paquetes opcionales adicionales (solo con --extras)
 	extra_dependencies="neovim tmux htop ripgrep fd fzf"
@@ -636,6 +656,79 @@ install_aur_dependencies() {
 	sleep 3
 }
 
+#--------------------------------------------------
+# Dependencias desde NPM (paquetes globales)
+#--------------------------------------------------
+
+install_npm_dependencies() {
+	# Solo ejecutar si --extras está activado
+	if [ "$INSTALL_EXTRAS" -ne 1 ]; then
+		return 0
+	fi
+	
+	clear
+	logo "Instalando paquetes npm globales..."
+	sleep 2
+	
+	# Verificar que npm esté instalado
+	if ! command -v npm >/dev/null 2>&1; then
+		log_error "npm no está instalado. No se pueden instalar paquetes npm."
+		return 1
+	fi
+
+	# Lista de paquetes npm opcionales (solo con --extras)
+	npm_packages="@fission-ai/openspec"
+	
+	printf "\n%b\n" "${BLD}${CYE}[--extras] Instalando paquetes npm globales...${CNC}"
+	printf "%b\n\n" "${BLD}${CBL}Verificando paquetes npm...${CNC}"
+	sleep 2
+
+	# Detectar paquetes npm faltantes
+	missing_npm=""
+	for pkg in $npm_packages; do
+		# Verificar si el paquete está instalado globalmente
+		if npm list -g "$pkg" >/dev/null 2>&1; then
+			printf "%b\n" "${BLD}${CGR}$pkg ${CBL}ya está instalado${CNC}"
+		else
+			missing_npm="$missing_npm $pkg"
+			printf "%b\n" " ${BLD}${CYE}$pkg ${CRE}no instalado${CNC}"
+		fi
+	done
+
+	# Instalación de paquetes npm faltantes
+	if [ -n "$(printf "%s" "$missing_npm" | tr -s ' ')" ]; then
+		count=$(printf "%s" "$missing_npm" | wc -w)
+		printf "\n%b\n\n" "${BLD}${CYE}Instalando $count paquetes npm, por favor espera...${CNC}"
+
+		npm_failed=""
+		for pkg in $missing_npm; do
+			printf "%b\n" "${BLD}${CBL}Instalando: ${pkg}${CNC}"
+
+			if npm install -g "$pkg" >>"$ERROR_LOG" 2>&1; then
+				printf "%b\n" "  ${BLD}${CGR}Se ha instalado correctamente!${CNC}"
+			else
+				log_error "Error al instalar el paquete npm: $pkg"
+				npm_failed="$npm_failed $pkg"
+				printf "%b\n" "  ${BLD}${CRE}Error al instalar${CNC}"
+			fi
+			sleep 0.5
+		done
+
+		# Mostrar resultados finales
+		if [ -n "$(printf "%s" "$npm_failed" | tr -s ' ')" ]; then
+			fail_count=$(printf "%s" "$npm_failed" | wc -w)
+			printf "%b\n" "\n${BLD}${CRE}Error al instalar $fail_count/$count paquetes npm:${CNC}"
+			printf "%b\n\n" "${BLD}${CYE}$(printf "%s" "$npm_failed")${CNC}"
+		else
+			printf "\n%b\n\n" "${BLD}${CGR}Todos los paquetes npm se han instalado correctamente!${CNC}"
+		fi
+	else
+		printf "\n%b\n\n" "${BLD}${CGR}Todos los paquetes npm ya están instalados!${CNC}"
+	fi
+
+	sleep 3
+}
+
 #==================================================
 # Configuración de dotbare (gestión de dotfiles)
 #==================================================
@@ -762,6 +855,7 @@ main() {
 	install_dependencies         # Instala los paquetes requeridos desde los repositorios oficiales
 	install_chaotic_dependencies # Instala dependencias específicas desde Chaotic-AUR
 	install_aur_dependencies     # Instala paquetes desde AUR usando un helper (ej: paru)
+	install_npm_dependencies     # Instala paquetes npm globales (solo con --extras)
 
 	configure_dotbare # Inicializa y configura dotbare con el repositorio de dotfiles indicado
 }
