@@ -12,30 +12,53 @@
 #                                          █▌
 #   Autor   -   Roberto Flores
 #   Repo    -   https://github.com/25ASAB015/dotmarchy
-#   Última actualización - 21-sep-2025
+#   Última actualización - 12-nov-2025
 #
-#   dotmarchy - Script para instalar los dotfiles de Roberto Flores en
-#   Arch linux / Omarchy linux
+#   dotmarchy - Script automatizado para instalar y configurar dotfiles
+#   en Arch Linux / Omarchy Linux con soporte multi-fuente de paquetes
 #
 # 	Copyright (C) 2025 dotmarchy <25ASAB015@ujmd.edu.sv>
 # 	Licenciado bajo GPL-3.0
 
 # 	Índice rápido de secciones:
-#  	1) Apariencia y opciones (colores, flags, rutas)
+#  	1) Apariencia y opciones (colores, flags: --extras, --repo, rutas)
 #  	2) Logging y utilidades (log, info, debug, tiempo)
-#  	3) Encabezado visual (logo)
+#  	3) Encabezado visual (logo ASCII)
 #  	4) Manejo de errores (log_error, trap)
 #  	5) Utilidades internas (run, require_cmd, normalize_repo_url, is_installed)
-#  	6) Interacción con usuario (welcome)
-#  	7) Dependencias (chaotic repo, oficiales, chaotic, AUR)
-#  	8) dotbare (configuración)
-#  	9) Main (flujo principal)
+#  	6) Argumentos CLI (parseo de flags)
+#  	7) Interacción con usuario (welcome con detección de modo --extras)
+#  	8) Dependencias:
+#  	   - Configuración del repositorio Chaotic-AUR
+#  	   - Instalación desde repositorios oficiales (pacman)
+#  	   - Instalación desde Chaotic-AUR (paru pre-compilado)
+#  	   - Instalación desde AUR (compilación con paru)
+#  	   - Instalación de paquetes npm globales (solo con --extras)
+#  	9) dotbare (configuración del gestor de dotfiles)
+#  	10) Main (flujo principal de ejecución)
+
+# Características principales:
+#   ✓ Sistema de paquetes core + extras personalizable
+#   ✓ Instalación desde 4 fuentes: pacman, Chaotic-AUR, AUR, npm
+#   ✓ Detección inteligente de paquetes ya instalados
+#   ✓ Verificación post-instalación y logging de errores
+#   ✓ Respaldos automáticos de configuraciones existentes
+#   ✓ Soporte SSH/HTTPS para repositorios de dotfiles
 
 # Uso rápido:
+#   dotmarchy                           # Instalación básica (9 paquetes core)
+#   dotmarchy --extras                  # Instalación completa (21 paquetes)
+#   dotmarchy --repo URL                # Con repositorio personalizado
+#   dotmarchy --extras --repo URL       # Combinación de opciones
+#   dotmarchy --help                    # Muestra ayuda completa
+
+# Ejemplos:
 #   dotmarchy
-#   dotmarchy [REPO_URL]
-# Ejemplo:
-#   dotmarchy https://github.com/yo/mis-dotfiles.git
+#   dotmarchy --extras
+#   dotmarchy --repo https://github.com/usuario/dotfiles.git
+#   dotmarchy --extras --repo git@github.com:usuario/dotfiles.git
+#   DRY_RUN=1 dotmarchy --extras       # Modo prueba (sin instalar)
+#   VERBOSE=1 dotmarchy --extras       # Modo verbose (depuración)
 #==================================================
 
 # Modo estricto: fallar ante errores y tuberías rotas

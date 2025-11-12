@@ -31,6 +31,8 @@
 
 **dotmarchy** es un script bash robusto y confiable diseñado para automatizar completamente la instalación y configuración de dotfiles en sistemas Arch Linux y Omarchy Linux. Elimina la necesidad de configurar manualmente tu entorno de desarrollo, gestionando todo el proceso de forma segura y automatizada.
 
+Con soporte para **cuatro fuentes de paquetes** (pacman, Chaotic-AUR, AUR, npm) y un sistema de paquetes **core + extras** personalizable, dotmarchy se adapta tanto a configuraciones minimalistas como a entornos de desarrollo completos.
+
 ### ¿Por qué usar dotmarchy?
 
 - ⚡ **Ahorra tiempo**: Configura tu entorno completo en minutos, no en horas
@@ -38,6 +40,7 @@
 - 🔄 **Reproducible**: Mismo entorno en cualquier máquina Arch/Omarchy
 - 🎨 **Profesional**: Interfaz visual clara con feedback en tiempo real
 - 🧪 **Probado**: Código estricto con manejo robusto de errores
+- 🎯 **Flexible**: Modo core minimalista o extras completo según necesites
 
 ---
 
@@ -47,7 +50,12 @@
 
 - ✅ Actualización automática del sistema (`pacman -Syu`)
 - ✅ Configuración automática del repositorio Chaotic-AUR
-- ✅ Instalación inteligente de dependencias (oficiales, Chaotic y AUR)
+- ✅ Instalación inteligente de dependencias desde **cuatro fuentes**:
+  - 📦 **Repositorios oficiales de Arch** (pacman)
+  - ⚡ **Chaotic-AUR** (paquetes AUR pre-compilados)
+  - 🔨 **AUR** (compilación con paru)
+  - 📦 **npm** (paquetes Node.js globales)
+- ✅ Modo `--extras` para instalar paquetes opcionales adicionales
 - ✅ Configuración automática de dotbare para gestión de dotfiles
 - ✅ Clonado y aplicación automática de tu repositorio de dotfiles
 
@@ -57,13 +65,17 @@
 - 📊 Feedback en tiempo real con información de progreso
 - ⏱️ Cronometraje de operaciones para transparencia
 - 📝 Mensajes claros y descriptivos en cada paso
+- 🎯 Detección dinámica de modos (muestra paquetes extras si `--extras` está activado)
+- 📋 Información detallada del repositorio de dotfiles a clonar
 
 ### 🔍 Verificaciones Inteligentes
 
 - 🔐 Verificación de permisos (no ejecuta como root)
 - 🌐 Verificación de conexión a internet
-- 📦 Detección de paquetes ya instalados (evita reinstalaciones)
+- 📦 Detección de paquetes ya instalados en **todas las fuentes** (evita reinstalaciones)
 - 🔄 Detección de configuraciones existentes
+- ✅ Verificación post-instalación de cada paquete
+- 📝 Logging automático de todos los errores
 
 ---
 
@@ -177,6 +189,9 @@ chmod +x dotmarchy
 # Ejecutar el instalador (desde tu $HOME)
 cd ~
 ./dotmarchy
+
+# O con paquetes extras opcionales
+./dotmarchy --extras
 ```
 
 ### Uso con Repositorio Personalizado
@@ -194,6 +209,76 @@ Si deseas usar tu propio repositorio de dotfiles:
 ./dotmarchy --repo https://github.com/usuario/mis-dotfiles.git
 ```
 
+### Paquetes: Core vs Extras
+
+dotmarchy instala paquetes en dos niveles:
+
+#### 📦 Paquetes Core (Siempre se instalan)
+
+Estos paquetes son esenciales para el funcionamiento de dotmarchy:
+
+**Repositorios Oficiales:**
+- `tree` - Visualización de estructura de directorios
+- `bat` - Visualizador de archivos con resaltado de sintaxis
+- `highlight` - Resaltador de sintaxis
+- `ruby-coderay` - Librería para resaltado de sintaxis
+- `git-delta` - Visor de diffs elegante para Git
+- `diff-so-fancy` - Visor de diffs mejorado
+- `npm` - Gestor de paquetes Node.js
+
+**Chaotic-AUR:**
+- `paru` - Helper de AUR (para instalar paquetes del AUR)
+
+**AUR:**
+- `dotbare` - Gestor de dotfiles con Git bare repository
+
+#### ⭐ Paquetes Extras (Solo con `--extras`)
+
+Si deseas un entorno más completo con herramientas de desarrollo, aplicaciones y utilidades adicionales, usa el flag `--extras`:
+
+```bash
+# Instalar paquetes core + extras
+./dotmarchy --extras
+
+# Combinar con repositorio personalizado
+./dotmarchy --extras --repo https://github.com/usuario/mis-dotfiles.git
+```
+
+**Paquetes incluidos con `--extras`:**
+
+**Herramientas de Desarrollo (Repositorios Oficiales):**
+- `neovim` - Editor de texto avanzado
+- `tmux` - Multiplexor de terminal
+- `htop` - Monitor de procesos interactivo
+- `ripgrep` - Búsqueda de texto ultra-rápida
+- `fd` - Alternativa moderna a `find`
+- `fzf` - Buscador fuzzy de línea de comandos
+
+**Aplicaciones (Chaotic-AUR):**
+- `brave-bin` - Navegador web enfocado en privacidad
+- `visual-studio-code-bin` - Editor de código de Microsoft
+
+**Shell Tools (AUR):**
+- `zsh-theme-powerlevel10k-git` - Tema poderoso para Zsh
+- `zsh-autosuggestions` - Autocompletado inteligente para Zsh
+- `zsh-syntax-highlighting` - Resaltado de sintaxis para Zsh
+
+**Herramientas NPM (Globales):**
+- `@fission-ai/openspec` - Herramienta de gestión de especificaciones OpenSpec
+
+#### Comparativa Rápida: Core vs Extras
+
+| Característica | Sin `--extras` | Con `--extras` |
+|---------------|----------------|----------------|
+| **Paquetes oficiales** | 7 paquetes | 13 paquetes (+6) |
+| **Chaotic-AUR** | 1 paquete (paru) | 3 paquetes (+2) |
+| **AUR** | 1 paquete (dotbare) | 4 paquetes (+3) |
+| **npm** | 0 paquetes | 1 paquete (+1) |
+| **Total** | **9 paquetes** | **21 paquetes** |
+| **Tiempo aprox.** | ~5-10 min | ~15-25 min |
+| **Uso de disco** | ~50-100 MB | ~500-800 MB |
+| **Ideal para** | Configuración minimalista | Entorno de desarrollo completo |
+
 ### Ayuda
 
 Para ver todas las opciones disponibles:
@@ -201,6 +286,61 @@ Para ver todas las opciones disponibles:
 ```bash
 ./dotmarchy --help
 ```
+
+### Ejemplos de Uso Completos
+
+```bash
+# Instalación básica (solo paquetes core)
+./dotmarchy
+
+# Instalación completa con extras
+./dotmarchy --extras
+
+# Repositorio personalizado + extras
+./dotmarchy --extras --repo git@github.com:usuario/dotfiles.git
+
+# Modo dry-run para probar sin instalar
+DRY_RUN=1 ./dotmarchy --extras
+
+# Modo verbose para depuración
+VERBOSE=1 ./dotmarchy --extras
+```
+
+---
+
+## 📦 Sistema de Gestión de Paquetes
+
+dotmarchy utiliza un sistema de gestión de paquetes multi-fuente que optimiza la instalación y garantiza compatibilidad:
+
+### Estrategia de Instalación
+
+1. **Repositorios Oficiales (pacman)** 🏛️
+   - Paquetes mantenidos oficialmente por Arch Linux
+   - Altamente estables y probados
+   - Instalación rápida y confiable
+
+2. **Chaotic-AUR** ⚡
+   - Paquetes AUR pre-compilados
+   - Evita tiempos de compilación largos
+   - Ideal para aplicaciones grandes (navegadores, IDEs)
+
+3. **AUR vía paru** 🔨
+   - Paquetes que requieren compilación
+   - Acceso a la colección completa de AUR
+   - Para herramientas especializadas y temas
+
+4. **npm Registry** 📦
+   - Paquetes Node.js instalados globalmente
+   - Herramientas CLI modernas
+   - Solo se instalan con `--extras`
+
+### Ventajas del Sistema
+
+- ✅ **Detección inteligente**: Evita reinstalar paquetes ya instalados
+- ✅ **Verificación post-instalación**: Confirma que cada paquete se instaló correctamente
+- ✅ **Manejo de errores robusto**: Logging detallado de fallos
+- ✅ **Instalación por lotes**: Optimiza tiempo instalando múltiples paquetes juntos
+- ✅ **Feedback visual**: Muestra progreso de cada instalación en tiempo real
 
 ---
 
@@ -246,6 +386,7 @@ VERBOSE=1 ./dotmarchy
 - **Bash 4.0+**: Lenguaje de scripting principal
 - **pacman**: Gestor de paquetes oficial de Arch Linux
 - **paru**: Helper de AUR (instalado automáticamente desde Chaotic-AUR)
+- **npm**: Gestor de paquetes de Node.js (para paquetes globales opcionales)
 - **dotbare**: Gestor de dotfiles basado en Git bare repository
 - **git**: Control de versiones para repositorios de dotfiles
 
@@ -254,11 +395,12 @@ VERBOSE=1 ./dotmarchy
 - **shellcheck**: Análisis estático de código bash
 - **shfmt**: Formateador de código shell
 
-### Repositorios Utilizados
+### Repositorios y Fuentes de Paquetes
 
-- **Repositorios Oficiales de Arch**: Paquetes base del sistema
-- **Chaotic-AUR**: Repositorio de terceros para instalación rápida de paquetes AUR
-- **AUR (Arch User Repository)**: Repositorio comunitario de paquetes
+- **Repositorios Oficiales de Arch**: Paquetes base del sistema y herramientas core
+- **Chaotic-AUR**: Repositorio de terceros para instalación rápida de paquetes AUR pre-compilados
+- **AUR (Arch User Repository)**: Repositorio comunitario de paquetes compilados con paru
+- **npm Registry**: Paquetes Node.js instalados globalmente
 
 ---
 
@@ -303,20 +445,24 @@ Si encuentras problemas:
 
 El script está organizado en secciones claras y modulares:
 
-1. **Apariencia y opciones**: Colores, flags, rutas
+1. **Apariencia y opciones**: Colores, flags (`--extras`, `--repo`), rutas
 2. **Logging y utilidades**: Funciones de log, info, debug, timing
 3. **Encabezado visual**: Logo ASCII
 4. **Manejo de errores**: Sistema robusto de logging y traps
 5. **Utilidades internas**: Helpers para comandos y verificaciones
-6. **Interacción con usuario**: Mensajes de bienvenida y confirmación
-7. **Gestión de dependencias**: Instalación desde múltiples fuentes
+6. **Interacción con usuario**: Mensajes de bienvenida dinámicos (detecta modo --extras)
+7. **Gestión de dependencias**: Instalación desde cuatro fuentes
+   - Repositorios oficiales (pacman)
+   - Chaotic-AUR (pacman)
+   - AUR (paru)
+   - NPM (npm install -g)
 8. **Configuración de dotbare**: Setup completo del gestor de dotfiles
 9. **Flujo principal**: Orquestación de todas las operaciones
 
 ### Flujo de Ejecución
 
 ```
-1. Parseo de argumentos
+1. Parseo de argumentos (--extras, --repo, etc.)
    ↓
 2. Verificaciones iniciales (seguridad)
    ↓
@@ -326,13 +472,15 @@ El script está organizado en secciones claras y modulares:
    ↓
 5. Instalación de dependencias oficiales
    ↓
-6. Instalación de dependencias Chaotic
+6. Instalación de dependencias Chaotic-AUR
    ↓
 7. Instalación de dependencias AUR
    ↓
-8. Configuración de dotbare
+8. Instalación de paquetes npm (solo si --extras)
    ↓
-9. Finalización exitosa
+9. Configuración de dotbare
+   ↓
+10. Finalización exitosa
 ```
 
 ---
