@@ -821,10 +821,10 @@ install_dependencies() {
     sleep 2
 
     # Detectar paquetes faltantes
-    missing_pkgs=""
+    missing_pkgs=()
     for pkg in $dependencies; do
         if ! is_installed "$pkg"; then
-            missing_pkgs="$missing_pkgs $pkg"
+            missing_pkgs+=("$pkg")
             printf "%b\n" " ${BLD}${CYE}$pkg ${CRE}no instalado${CNC}"
         else
             printf "%b\n" "${BLD}${CGR}$pkg ${CBL}ya está instalado${CNC}"
@@ -832,27 +832,27 @@ install_dependencies() {
     done
 
     # Instalación por lotes si es necesario
-    if [ -n "$(printf "%s" "$missing_pkgs" | tr -s ' ')" ]; then
-        count=$(printf "%s" "$missing_pkgs" | wc -w)
+    if [ "${#missing_pkgs[@]}" -gt 0 ]; then
+        count="${#missing_pkgs[@]}"
         printf "\n%b\n\n" "${BLD}${CYE}Instalando $count paquetes, por favor espera...${CNC}"
 
-		if sudo pacman -S --noconfirm "$missing_pkgs" 2>&1 | tee -a "$ERROR_LOG" >/dev/null; then
+        if sudo pacman -S --noconfirm "${missing_pkgs[@]}" 2>&1 | tee -a "$ERROR_LOG" >/dev/null; then
             # Verificar instalación completa
-            failed_pkgs=""
-            for pkg in $missing_pkgs; do
+            failed_pkgs=()
+            for pkg in "${missing_pkgs[@]}"; do
                 if ! is_installed "$pkg"; then
-                    failed_pkgs="$failed_pkgs $pkg"
+                    failed_pkgs+=("$pkg")
                     log_error "Error al instalar: $pkg"
                 fi
             done
 
             # Mostrar resultados finales
-            if [ -z "$(printf "%s" "$failed_pkgs" | tr -s ' ')" ]; then
+            if [ "${#failed_pkgs[@]}" -eq 0 ]; then
                 printf "%b\n\n" "${BLD}${CGR}Todos los paquetes se han instalado correctamente!${CNC}"
             else
-                fail_count=$(printf "%s" "$failed_pkgs" | wc -w)
+                fail_count="${#failed_pkgs[@]}"
                 printf "%b\n" "${BLD}${CRE}Error al instalar $fail_count paquetes:${CNC}"
-                printf "%b\n\n" "  ${BLD}${CYE}$(printf "%s" "$failed_pkgs")${CNC}"
+                printf "%b\n\n" "  ${BLD}${CYE}${failed_pkgs[*]}${CNC}"
             fi
         else
             log_error "Error crítico durante la instalación por lotes"
@@ -2452,7 +2452,11 @@ main() {
     install_github_tools      # Instala herramientas desde GitHub releases (solo con --extras)
 
     setup_development_environment # Configura entorno de desarrollo (solo con --setup-env)
-    configure_path             # Configura PATH para todos los gestores de paquetes
+    if [ "$INSTALL_EXTRAS" -eq 1 ] || [ "$SETUP_ENVIRONMENT" -eq 1 ]; then
+        configure_path         # Configura PATH para gestores extra solo cuando se instalan
+    else
+        debug "Saltando configuración de PATH (solo paquetes core instalados)"
+    fi
     farewell                   # Muestra resumen final y despedida
 }
 
