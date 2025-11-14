@@ -2275,6 +2275,41 @@ setup_development_environment() {
 # Configuración de dotbare (gestión de dotfiles)
 #==================================================
 
+ensure_dotbare_available() {
+	if command -v dotbare >/dev/null 2>&1; then
+		return 0
+	fi
+
+	local dotbare_dir="$HOME/.dotbare"
+	if [ ! -d "$dotbare_dir" ]; then
+		info "dotbare no está instalado. Clonando repositorio oficial..."
+		if ! git clone https://github.com/kazhala/dotbare.git "$dotbare_dir" >>"$ERROR_LOG" 2>&1; then
+			log_error "No se pudo clonar dotbare en $dotbare_dir"
+			return 1
+		fi
+	fi
+
+	local plugin_to_source=""
+	if [ -n "${ZSH_VERSION:-}" ] && [ -f "$dotbare_dir/dotbare.plugin.zsh" ]; then
+		plugin_to_source="$dotbare_dir/dotbare.plugin.zsh"
+	elif [ -f "$dotbare_dir/dotbare.plugin.bash" ]; then
+		plugin_to_source="$dotbare_dir/dotbare.plugin.bash"
+	fi
+
+	if [ -n "$plugin_to_source" ]; then
+		# shellcheck disable=SC1090
+		. "$plugin_to_source"
+	fi
+
+	if command -v dotbare >/dev/null 2>&1; then
+		success "dotbare disponible en el sistema"
+		return 0
+	fi
+
+	warn "dotbare sigue sin estar disponible. Verifica manualmente la instalación."
+	return 1
+}
+
 # Configura dotbare (repo bare de dotfiles) y ajusta remoto si es necesario
 configure_dotbare() {
     clear 2> /dev/null || true
@@ -2399,6 +2434,13 @@ main() {
 
     welcome # Muestra mensaje de bienvenida e información al usuario
 
+    if ensure_dotbare_available; then
+        configure_dotbare          # Inicializa y configura dotbare con el repositorio de dotfiles indicado
+    else
+        log_error "dotbare no se pudo preparar automáticamente; abortando para evitar instalación inconsistente."
+        exit 1
+    fi
+
     add_chaotic_repo          # Añade el repositorio Chaotic-AUR si es necesario (para instalar paquetes extra)
     install_dependencies      # Instala los paquetes requeridos desde los repositorios oficiales
     install_chaotic_dependencies # Instala dependencias específicas desde Chaotic-AUR
@@ -2409,7 +2451,6 @@ main() {
     install_ruby_packages     # Instala gemas de Ruby (solo con --extras)
     install_github_tools      # Instala herramientas desde GitHub releases (solo con --extras)
 
-    configure_dotbare          # Inicializa y configura dotbare con el repositorio de dotfiles indicado
     setup_development_environment # Configura entorno de desarrollo (solo con --setup-env)
     configure_path             # Configura PATH para todos los gestores de paquetes
     farewell                   # Muestra resumen final y despedida
