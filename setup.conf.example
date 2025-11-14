@@ -43,6 +43,7 @@ EXTRA_DEPENDENCIES=(
     "bat"             # Cat clone with syntax highlighting
     "lsd"             # Modern ls replacement with icons and colors
     "eza"             # Modern ls replacement (exa fork)
+    "shfmt"           # Go-based shell script formatter
     
     # Miscellaneous utilities
     "figlet"          # ASCII art text generator
