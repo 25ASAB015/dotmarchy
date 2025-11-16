@@ -29,9 +29,9 @@
 
 ## 🎯 ¿Qué es dotmarchy?
 
-**dotmarchy** es un script bash robusto y confiable diseñado para automatizar completamente la instalación y configuración de dotfiles en sistemas Arch Linux y Omarchy Linux. Elimina la necesidad de configurar manualmente tu entorno de desarrollo, gestionando todo el proceso de forma segura y automatizada.
+**dotmarchy** es un sistema modular de scripts bash diseñado para automatizar completamente la instalación y configuración de dotfiles en sistemas Arch Linux y Omarchy Linux. Elimina la necesidad de configurar manualmente tu entorno de desarrollo, gestionando todo el proceso de forma segura y automatizada.
 
-Con soporte para **cuatro fuentes de paquetes** (pacman, Chaotic-AUR, AUR, npm) y un sistema de paquetes **core + extras** personalizable, dotmarchy se adapta tanto a configuraciones minimalistas como a entornos de desarrollo completos.
+Con una **arquitectura modular inspirada en dotbare** (21 componentes optimizados), soporte para **múltiples fuentes de paquetes** (pacman, Chaotic-AUR, AUR, npm, cargo, pip, ruby, GitHub releases) y un sistema de paquetes **core + extras** personalizable, dotmarchy se adapta tanto a configuraciones minimalistas como a entornos de desarrollo completos.
 
 ### ¿Por qué usar dotmarchy?
 
@@ -41,6 +41,9 @@ Con soporte para **cuatro fuentes de paquetes** (pacman, Chaotic-AUR, AUR, npm) 
 - 🎨 **Profesional**: Interfaz visual clara con feedback en tiempo real
 - 🧪 **Probado**: Código estricto con manejo robusto de errores
 - 🎯 **Flexible**: Modo core minimalista o extras completo según necesites
+- 🧩 **Modular**: Arquitectura organizada en 21 componentes independientes
+- 🔧 **Mantenible**: Código limpio siguiendo el patrón dotbare
+- ⚙️ **Extensible**: Fácil agregar nuevos gestores de paquetes
 
 ---
 
@@ -50,11 +53,15 @@ Con soporte para **cuatro fuentes de paquetes** (pacman, Chaotic-AUR, AUR, npm) 
 
 - ✅ Actualización automática del sistema (`pacman -Syu`)
 - ✅ Configuración automática del repositorio Chaotic-AUR
-- ✅ Instalación inteligente de dependencias desde **cuatro fuentes**:
+- ✅ Instalación inteligente de dependencias desde **múltiples fuentes**:
   - 📦 **Repositorios oficiales de Arch** (pacman)
   - ⚡ **Chaotic-AUR** (paquetes AUR pre-compilados)
   - 🔨 **AUR** (compilación con paru)
   - 📦 **npm** (paquetes Node.js globales)
+  - 🦀 **Cargo** (herramientas Rust)
+  - 🐍 **pip/pipx** (paquetes Python)
+  - 💎 **RubyGems** (gemas Ruby)
+  - 🐙 **GitHub Releases** (binarios directos)
 - ✅ Modo `--extras` para instalar paquetes opcionales adicionales
 - ✅ Configuración automática de dotbare para gestión de dotfiles
 - ✅ Clonado y aplicación automática de tu repositorio de dotfiles
@@ -76,6 +83,7 @@ Con soporte para **cuatro fuentes de paquetes** (pacman, Chaotic-AUR, AUR, npm) 
 - 🔄 Detección de configuraciones existentes
 - ✅ Verificación post-instalación de cada paquete
 - 📝 Logging automático de todos los errores
+- 🧩 Scripts modulares independientes y testeables
 
 ---
 
@@ -95,7 +103,6 @@ set -Eeuo pipefail
 #### 2. **Verificaciones Previas Obligatorias**
 
 - ❌ **No ejecuta como root**: Protege contra modificaciones peligrosas del sistema
-- 📍 **Ejecución desde HOME**: Evita confusiones de rutas
 - 🌐 **Verificación de internet**: Asegura conectividad antes de descargar
 - 🐧 **Verificación de sistema**: Solo funciona en Arch/Omarchy (requiere pacman)
 
@@ -116,7 +123,9 @@ set -Eeuo pipefail
 
 - ✅ **shellcheck**: Análisis estático de código para detectar errores
 - ✅ **shfmt**: Formateo consistente del código
-- ✅ **Funciones modulares**: Código organizado y mantenible
+- ✅ **Arquitectura modular**: 21 componentes organizados siguiendo patrón dotbare
+- ✅ **Separación de responsabilidades**: Helpers, core, extras, setup
+- ✅ **Scripts independientes**: Cada componente es testeable por separado
 - ✅ **Comentarios en español**: Documentación clara y comprensible
 
 ---
@@ -165,7 +174,7 @@ set -Eeuo pipefail
 - **Gestor de paquetes**: `pacman` (incluido por defecto)
 - **Permisos**: Usuario normal (NO root)
 - **Conexión**: Internet activa
-- **Ubicación**: Ejecutar desde el directorio HOME (`$HOME`)
+- **Ubicación**: Ejecutable desde cualquier directorio
 
 ---
 
@@ -186,8 +195,7 @@ curl -LO https://raw.githubusercontent.com/25ASAB015/dotmarchy/master/dotmarchy
 # Dar permisos de ejecución
 chmod +x dotmarchy
 
-# Ejecutar el instalador (desde tu $HOME)
-cd ~
+# Ejecutar el instalador
 ./dotmarchy
 
 # O con paquetes extras opcionales
@@ -273,14 +281,21 @@ Si deseas un entorno más completo con herramientas de desarrollo, aplicaciones 
 
 | Característica | Sin `--extras` | Con `--extras` |
 |---------------|----------------|----------------|
-| **Paquetes oficiales** | 7 paquetes | 13 paquetes (+6) |
-| **Chaotic-AUR** | 1 paquete (paru) | 3 paquetes (+2) |
-| **AUR** | 1 paquete (dotbare) | 4 paquetes (+3) |
-| **npm** | 0 paquetes | 1 paquete (+1) |
-| **Total** | **9 paquetes** | **21 paquetes** |
-| **Tiempo aprox.** | ~5-10 min | ~15-25 min |
-| **Uso de disco** | ~50-100 MB | ~500-800 MB |
+| **Gestores de paquetes** | 4 fuentes | 8 fuentes |
+| **Paquetes oficiales** | 7 paquetes | ~13+ paquetes |
+| **Chaotic-AUR** | 1 paquete (paru) | ~3+ paquetes |
+| **AUR** | 1 paquete (dotbare) | ~4+ paquetes |
+| **npm** | 0 paquetes | Configurable |
+| **cargo** | 0 paquetes | Configurable |
+| **pip/pipx** | 0 paquetes | Configurable |
+| **ruby gems** | 0 paquetes | Configurable |
+| **GitHub releases** | 0 paquetes | Configurable |
+| **Total mínimo** | **9 paquetes** | **20+ paquetes** |
+| **Tiempo aprox.** | ~5-10 min | ~15-30 min |
+| **Uso de disco** | ~50-100 MB | ~500 MB - 1 GB |
 | **Ideal para** | Configuración minimalista | Entorno de desarrollo completo |
+
+> **Nota**: Los paquetes extras son completamente personalizables vía `~/.config/dotmarchy/setup.conf`
 
 ### Ayuda
 
@@ -383,7 +398,7 @@ VERBOSE=1 ./dotmarchy --extras
 
 dotmarchy utiliza un sistema de gestión de paquetes multi-fuente que optimiza la instalación y garantiza compatibilidad:
 
-### Estrategia de Instalación
+### Estrategia de Instalación (8 fuentes)
 
 1. **Repositorios Oficiales (pacman)** 🏛️
    - Paquetes mantenidos oficialmente por Arch Linux
@@ -403,7 +418,27 @@ dotmarchy utiliza un sistema de gestión de paquetes multi-fuente que optimiza l
 4. **npm Registry** 📦
    - Paquetes Node.js instalados globalmente
    - Herramientas CLI modernas
-   - Solo se instalan con `--extras`
+   - Solo con `--extras` (configurable vía `setup.conf`)
+
+5. **Cargo (Rust)** 🦀
+   - Herramientas Rust ultra-rápidas
+   - Compiladas desde crates.io
+   - Solo con `--extras` (ej: ripgrep-all, lsd, tokei)
+
+6. **pip/pipx (Python)** 🐍
+   - Paquetes Python en entornos aislados
+   - Herramientas de desarrollo y CLI
+   - Solo con `--extras` (ej: httpie, black, ruff)
+
+7. **RubyGems** 💎
+   - Gemas Ruby instaladas localmente
+   - Tools especializados
+   - Solo con `--extras` (ej: tmuxinator, colorls)
+
+8. **GitHub Releases** 🐙
+   - Binarios descargados directamente
+   - Para herramientas sin gestor de paquetes
+   - Solo con `--extras` (ej: lazygit, delta, fzf)
 
 ### Ventajas del Sistema
 
@@ -454,17 +489,25 @@ VERBOSE=1 ./dotmarchy
 
 ### Herramientas Principales
 
-- **Bash 4.0+**: Lenguaje de scripting principal
+- **Bash 4.0+**: Lenguaje de scripting principal con modo estricto (`set -Eeuo pipefail`)
 - **pacman**: Gestor de paquetes oficial de Arch Linux
 - **paru**: Helper de AUR (instalado automáticamente desde Chaotic-AUR)
-- **npm**: Gestor de paquetes de Node.js (para paquetes globales opcionales)
 - **dotbare**: Gestor de dotfiles basado en Git bare repository
 - **git**: Control de versiones para repositorios de dotfiles
+
+### Gestores de Paquetes Adicionales (Extras)
+
+- **npm**: Paquetes Node.js globales
+- **cargo**: Herramientas Rust (crates.io)
+- **pip/pipx**: Paquetes Python en entornos aislados
+- **gem**: Gemas Ruby instaladas localmente
+- **curl**: Descarga de binarios desde GitHub Releases
 
 ### Herramientas de Desarrollo
 
 - **shellcheck**: Análisis estático de código bash
 - **shfmt**: Formateador de código shell
+- **OpenSpec**: Framework para spec-driven development
 
 ### Repositorios y Fuentes de Paquetes
 
@@ -472,6 +515,10 @@ VERBOSE=1 ./dotmarchy
 - **Chaotic-AUR**: Repositorio de terceros para instalación rápida de paquetes AUR pre-compilados
 - **AUR (Arch User Repository)**: Repositorio comunitario de paquetes compilados con paru
 - **npm Registry**: Paquetes Node.js instalados globalmente
+- **crates.io**: Herramientas Rust compiladas con cargo
+- **PyPI**: Paquetes Python instalados con pip/pipx
+- **RubyGems**: Gemas Ruby instaladas con gem
+- **GitHub Releases**: Binarios descargados directamente
 
 ---
 
@@ -510,55 +557,144 @@ Si encuentras problemas:
 
 ---
 
-## 🏗️ Arquitectura del Script
+## 🏗️ Arquitectura del Proyecto
 
-### Estructura Modular
+### Estructura Modular (Patrón dotbare)
 
-El script está organizado en secciones claras y modulares:
+dotmarchy sigue una arquitectura modular inspirada en [dotbare](https://github.com/kazhala/dotbare), con 21 componentes organizados en una estructura clara:
 
-1. **Apariencia y opciones**: Colores, flags (`--extras`, `--repo`), rutas
-2. **Logging y utilidades**: Funciones de log, info, debug, timing
-3. **Encabezado visual**: Logo ASCII
-4. **Manejo de errores**: Sistema robusto de logging y traps
-5. **Utilidades internas**: Helpers para comandos y verificaciones
-6. **Interacción con usuario**: Mensajes de bienvenida dinámicos (detecta modo --extras)
-7. **Gestión de dependencias**: Instalación desde cuatro fuentes
-   - Repositorios oficiales (pacman)
-   - Chaotic-AUR (pacman)
-   - AUR (paru)
-   - NPM (npm install -g)
-8. **Configuración de dotbare**: Setup completo del gestor de dotfiles
-9. **Flujo principal**: Orquestación de todas las operaciones
+```
+dotmarchy/
+├── dotmarchy                 # Router principal (106 líneas, orquesta todo)
+├── helper/                   # Librerías compartidas (6 archivos)
+│   ├── set_variable.sh       # Variables, configuración, arrays de paquetes
+│   ├── colors.sh             # Definiciones de colores y estilos
+│   ├── logger.sh             # Sistema de logging (log, info, warn, debug)
+│   ├── utils.sh              # Utilidades (run, require_cmd, normalize_repo_url)
+│   ├── checks.sh             # Verificaciones iniciales (sistema, internet)
+│   └── prompts.sh            # Interacción (logo, usage, welcome, farewell)
+├── scripts/
+│   ├── core/                 # Scripts core (6 archivos, siempre ejecutados)
+│   │   ├── fupdate           # Actualización del sistema (pacman -Syu)
+│   │   ├── fchaotic          # Configuración Chaotic-AUR
+│   │   ├── fdeps             # Instalación dependencias oficiales
+│   │   ├── fchaotic-deps     # Instalación desde Chaotic-AUR
+│   │   ├── faur              # Instalación desde AUR
+│   │   └── fdotbare          # Configuración dotbare
+│   ├── extras/               # Scripts extras (6 archivos, solo con --extras)
+│   │   ├── fnpm              # Paquetes npm globales
+│   │   ├── fcargo            # Herramientas Rust/cargo
+│   │   ├── fpython           # Paquetes Python (pip/pipx)
+│   │   ├── fruby             # Gemas Ruby
+│   │   ├── fgithub           # Tools desde GitHub releases
+│   │   └── fpath             # Configuración PATH (8 rutas: cargo, local, ruby, lua, go, nvm, deno, pynvim)
+│   ├── setup/                # Setup entorno (1 archivo, solo con --setup-env)
+│   │   └── fenv-setup        # Orquestador unificado (dirs, repos, scripts, shell)
+│   └── fverify               # Verificación completa de instalación
+└── setup.conf.example        # Archivo de configuración de ejemplo
+```
+
+### Ventajas de la Arquitectura Modular
+
+- 🧩 **Separación clara**: Cada script tiene una responsabilidad específica
+- 🔧 **Mantenimiento fácil**: Modificar un componente no afecta a otros
+- 🧪 **Testeable**: Cada script puede ejecutarse y probarse independientemente
+- ⚙️ **Extensible**: Agregar nuevos gestores de paquetes es trivial
+- 📖 **Legible**: Código organizado en archivos pequeños y enfocados
+- 🔄 **Reutilizable**: Helpers compartidos evitan duplicación de código
+
+### Principios de Diseño
+
+1. **Scripts ejecutables con prefijo `f`**: Siguiendo convención dotbare
+2. **Helpers sourceable**: Solo definiciones, no ejecutables
+3. **Comunicación vía environment**: Variables exportadas entre componentes
+4. **Idempotencia**: Operaciones seguras para ejecutar múltiples veces
+5. **Manejo robusto de errores**: `set -Eeuo pipefail` en todos los scripts
 
 ### Flujo de Ejecución
 
+El router principal (`dotmarchy`) orquesta la ejecución de todos los componentes:
+
 ```
-1. Parseo de argumentos (--extras, --setup-env, --repo, etc.)
+1. Router principal (dotmarchy)
+   ├─ Source de todos los helpers (set_variable, colors, logger, utils, checks, prompts)
+   ├─ Parseo de argumentos (--extras, --setup-env, --repo, --verify, etc.)
    ↓
-2. Verificaciones iniciales (seguridad)
+2. Verificaciones iniciales (checks.sh)
+   ├─ No ejecuta como root
+   ├─ Verifica conexión a internet
+   └─ Confirma que es sistema Arch/Omarchy
    ↓
-3. Mensaje de bienvenida y confirmación
+3. Mensaje de bienvenida (welcome)
+   ├─ Logo ASCII de dotmarchy
+   ├─ Información dinámica (muestra extras/setup si están activos)
+   └─ Confirmación del usuario
    ↓
-4. Configuración de Chaotic-AUR
+4. Scripts Core (siempre ejecutados)
+   ├─ scripts/core/fupdate          → Actualización sistema (pacman -Syu)
+   ├─ scripts/core/fchaotic         → Configuración Chaotic-AUR
+   ├─ scripts/core/fdeps            → Deps oficiales
+   ├─ scripts/core/fchaotic-deps    → Deps Chaotic-AUR
+   ├─ scripts/core/faur             → Deps AUR
+   └─ scripts/core/fdotbare         → Configuración dotbare + clone dotfiles
    ↓
-5. Instalación de dependencias oficiales
+5. Scripts Extras (solo si --extras)
+   ├─ scripts/extras/fnpm           → Paquetes npm globales
+   ├─ scripts/extras/fcargo         → Herramientas Rust
+   ├─ scripts/extras/fpython        → Paquetes Python (pip/pipx)
+   ├─ scripts/extras/fruby          → Gemas Ruby
+   ├─ scripts/extras/fgithub        → Tools desde GitHub releases
+   └─ scripts/extras/fpath          → Configuración PATH (8 rutas)
    ↓
-6. Instalación de dependencias Chaotic-AUR
+6. Setup Entorno (solo si --setup-env)
+   └─ scripts/setup/fenv-setup      → Orquestador unificado
+      ├─ [1] Crear directorios personalizados
+      ├─ [2] Clonar repositorios (plugins, tools)
+      ├─ [3] Descargar scripts
+      └─ [4] Configurar shell (.zshrc/.bashrc)
    ↓
-7. Instalación de dependencias AUR
+7. Verificación (solo si --verify)
+   └─ scripts/fverify               → Verificación completa de instalación
    ↓
-8. Instalación de paquetes npm (solo si --extras)
-   ↓
-9. Configuración de dotbare
-   ↓
-10. Configuración del entorno (solo si --setup-env)
-    - Crear directorios
-    - Clonar repositorios
-    - Descargar scripts
-    - Configurar shell
-   ↓
-11. Finalización exitosa
+8. Finalización (farewell)
+   ├─ Resumen de instalación
+   ├─ Estadísticas (tiempo, paquetes instalados)
+   └─ Próximos pasos
 ```
+
+### Comunicación Entre Componentes
+
+Los scripts se comunican mediante:
+- **Variables exportadas**: `REPO_URL`, `INSTALL_EXTRAS`, `SETUP_ENVIRONMENT`, `DRY_RUN`, `VERBOSE`
+- **Códigos de salida**: `0` (éxito), `1` (error)
+- **Logs compartidos**: `~/.local/share/dotmarchy/install_errors.log`
+- **Helpers compartidos**: Todas las funciones de `helper/` disponibles para todos los scripts
+
+---
+
+## 🏛️ Historia del Proyecto
+
+### Refactorización a Arquitectura Modular (2025-11-16)
+
+dotmarchy fue originalmente un script monolítico de **2,465 líneas** en un solo archivo. Fue completamente refactorizado a una arquitectura modular inspirada en [dotbare](https://github.com/kazhala/dotbare), manteniendo 100% de compatibilidad backward.
+
+**Métricas de la refactorización:**
+- 📉 **Reducción del 95.7%** en el script principal (2,464 → 106 líneas)
+- 🧩 **21 componentes modulares** con separación clara de responsabilidades
+- ✅ **13 correcciones** + 1 mejora UX + limpieza de código muerto
+- 🎯 **100% de fidelidad** funcional y visual al monolítico original
+- 📖 **235 tareas implementadas** documentadas en OpenSpec
+
+**Ventajas de la refactorización:**
+- ✅ Código más mantenible y testeable
+- ✅ Fácil agregar nuevos gestores de paquetes
+- ✅ Scripts independientes ejecutables individualmente
+- ✅ Mejor organización del código fuente
+- ✅ Documentación detallada de cada componente
+
+**Documentación de la refactorización:**
+- Ver `REFACTORING_SUMMARY.md` para detalles técnicos completos
+- Ver `openspec/changes/refactor-monolithic-to-modular/` para propuestas, tareas y specs
 
 ---
 
