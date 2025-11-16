@@ -187,13 +187,17 @@ GIT_REPOS=(
 # Format: "URL:DESTINATION"
 # Scripts will be made executable automatically
 SCRIPTS=(
-    "https://raw.githubusercontent.com/tobi/try/refs/heads/main/try.rb:~/.local/bin/try.rb"
+    # try.rb - Safe way to try Ruby gems without modifying your system
+    # Note: Goes directly to ~/.local (not ~/.local/bin)
+    "https://raw.githubusercontent.com/tobi/try/refs/heads/main/try.rb:~/.local/try.rb"
 )
 
 # Lines to add to shell configuration
 # Format: Array of lines to add
 # Will be added idempotently (no duplicates)
 SHELL_LINES=(
-    'eval "$(ruby ~/.local/bin/try.rb init ~/src/tries)"'
+    # Initialize try.rb (requires Ruby installed)
+    # This enables "try" command in your shell
+    'eval "$(ruby ~/.local/try.rb init ~/src/tries)"'
 )
 

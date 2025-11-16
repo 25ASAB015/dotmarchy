@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# f cargo - Install Rust/Cargo packages
+#
+# Installs Rust tools via cargo. Only runs if --extras set.
+
+set -Eeuo pipefail
+
+mydir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${mydir}/../../helper/set_variable.sh"
+source "${mydir}/../../helper/colors.sh"
+source "${mydir}/../../helper/logger.sh"
+source "${mydir}/../../helper/prompts.sh"
+trap on_error ERR
+
+function usage() {
+  echo "Usage: fcargo [-h]
+Install Rust/cargo packages. Requires --extras flag."
+}
+
+function main() {
+    [[ "${1:-}" =~ ^(-h|--help)$ ]] && usage && exit 0
+    [ "${INSTALL_EXTRAS:-0}" -ne 1 ] && return 0
+    
+    clear 2>/dev/null || true
+    logo "Instalando Herramientas de Rust (cargo)"
+    sleep 2
+    
+    # Install rustup if needed
+    if ! command -v cargo >/dev/null 2>&1; then
+        warn "cargo no instalado. Instalando rustup..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        # shellcheck source=/dev/null
+        [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
+    fi
+    
+    # Load package list
+    local cargo_packages="bob-nvim tree-sitter-cli stylua"
+    [ -f "$SETUP_CONFIG" ] && {
+        # shellcheck source=/dev/null
+        source "$SETUP_CONFIG"
+        cargo_packages="${CARGO_PACKAGES[*]:-$cargo_packages}"
+    }
+    
+    printf "\n%b\n" "${BLD}${CYE}[--extras] Instalando herramientas Rust...${CNC}"
+    printf "%b\n\n" "${BLD}${CBL}Verificando paquetes cargo...${CNC}"
+    sleep 2
+    
+    # Detect missing
+    local missing_cargo=""
+    for pkg in $cargo_packages; do
+        local bin_name="$pkg"
+        [[ $pkg == "bob-nvim" ]] && bin_name="bob"
+        [[ $pkg == "tree-sitter-cli" ]] && bin_name="tree-sitter"
+        
+        command -v "$bin_name" >/dev/null 2>&1 && \
+            printf "%b\n" "${BLD}${CGR}$pkg ${CBL}instalado${CNC}" || {
+            missing_cargo="$missing_cargo $pkg"
+            printf "%b\n" " ${BLD}${CYE}$pkg ${CRE}no instalado${CNC}"
+        }
+    done
+    
+    # Install missing
+    [ -n "$(printf "%s" "$missing_cargo" | tr -s ' ')" ] && {
+        local count
+        count=$(printf "%s" "$missing_cargo" | wc -w)
+        printf "\n%b\n\n" "${BLD}${CYE}Instalando $count paquetes cargo...${CNC}"
+        
+        local cargo_failed=""
+        for pkg in $missing_cargo; do
+            printf "%b\n" "${BLD}${CBL}Instalando: ${pkg}${CNC}"
+            cargo install "$pkg" >>"$ERROR_LOG" 2>&1 && \
+                printf "%b\n" "  ${BLD}${CGR}OK${CNC}" || {
+                log_error "Error: $pkg"
+                cargo_failed="$cargo_failed $pkg"
+                printf "%b\n" "  ${BLD}${CRE}Error${CNC}"
+            }
+            sleep 0.5
+        done
+        
+        [ -z "$(printf "%s" "$cargo_failed" | tr -s ' ')" ] && \
+            printf "\n%b\n\n" "${BLD}${CGR}Todos instalados!${CNC}" || \
+            printf "%b\n\n" "\n${BLD}${CRE}Fallaron: $cargo_failed${CNC}"
+    } || printf "\n%b\n\n" "${BLD}${CGR}Todos instalados!${CNC}"
+    
+    sleep 3
+}
+
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
+

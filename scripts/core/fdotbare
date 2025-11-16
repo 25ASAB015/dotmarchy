@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# shfmt: -ln=bash
+#
+# fdotbare - Configure dotbare for dotfiles management
+#
+# Ensures dotbare is available and configures it with the user's dotfiles repository.
+# Handles SSH/HTTPS fallback and checks for existing configurations.
+#
+# @params
+# Globals:
+#   ${DOTBARE_DIR}: Location of bare repository
+#   ${DOTBARE_TREE}: Working tree location
+#   ${REPO_URL}: Dotfiles repository URL
+#   ${FORCE}: Force flag for overwriting existing config
+#   ${ERROR_LOG}: Path to error log file
+# Arguments:
+#   -h|--help: Show help message and exit
+# Returns:
+#   0 on success
+#   1 on failure
+
+set -Eeuo pipefail
+
+# Determine script directory
+mydir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source required helpers
+source "${mydir}/../../helper/set_variable.sh"
+source "${mydir}/../../helper/colors.sh"
+source "${mydir}/../../helper/logger.sh"
+source "${mydir}/../../helper/prompts.sh"
+source "${mydir}/../../helper/utils.sh"
+
+# Setup error trap
+trap on_error ERR
+
+#######################################
+# Display usage information
+#######################################
+function usage() {
+  echo -e "Usage: fdotbare [-h]
+
+Configure dotbare to manage dotfiles using a git bare repository.
+Ensures dotbare is available and initializes it with your dotfiles repository.
+
+Configuration:
+  DOTBARE_DIR:  ${DOTBARE_DIR}
+  DOTBARE_TREE: ${DOTBARE_TREE}
+  REPO_URL:     ${REPO_URL}
+
+Optional arguments:
+  -h, --help\t\tshow this help message and exit."
+}
+
+#######################################
+# Ensure dotbare command is available
+# Clones dotbare repository if not installed
+# Returns:
+#   0 if dotbare is available
+#   1 if dotbare cannot be made available
+#######################################
+function ensure_dotbare_available() {
+    if command -v dotbare >/dev/null 2>&1; then
+        return 0
+    fi
+    
+    local dotbare_dir="$HOME/.dotbare"
+    if [ ! -d "$dotbare_dir" ]; then
+        info "dotbare no está instalado. Clonando repositorio oficial..."
+        if ! git clone https://github.com/kazhala/dotbare.git "$dotbare_dir" >>"$ERROR_LOG" 2>&1; then
+            log_error "No se pudo clonar dotbare en $dotbare_dir"
+            return 1
+        fi
+    fi
+    
+    # Source appropriate plugin for current shell
+    local plugin_to_source=""
+    if [ -n "${ZSH_VERSION:-}" ] && [ -f "$dotbare_dir/dotbare.plugin.zsh" ]; then
+        plugin_to_source="$dotbare_dir/dotbare.plugin.zsh"
+    elif [ -f "$dotbare_dir/dotbare.plugin.bash" ]; then
+        plugin_to_source="$dotbare_dir/dotbare.plugin.bash"
+    fi
+    
+    if [ -n "$plugin_to_source" ]; then
+        # shellcheck disable=SC1090
+        . "$plugin_to_source"
+    fi
+    
+    if command -v dotbare >/dev/null 2>&1; then
+        info "dotbare disponible en el sistema"
+        return 0
+    fi
+    
+    warn "dotbare sigue sin estar disponible. Verifica manualmente la instalación."
+    return 1
+}
+
+#######################################
+# Configure dotbare with user's dotfiles repository
+# Handles SSH/HTTPS fallback and existing configurations
+#######################################
+function configure_dotbare() {
+    clear 2>/dev/null || true
+    logo "Configurando dotbare"
+    sleep 2
+    
+    printf "%b\n" "${BLD}${CBL}Preparando dotbare para gestionar tus dotfiles...${CNC}"
+    sleep 1
+    
+    require_cmd dotbare
+    
+    # Allow environment override
+    DOTBARE_DIR="${DOTBARE_DIR:-$DOTBARE_DIR_DEFAULT}"
+    DOTBARE_TREE="${DOTBARE_TREE:-$DOTBARE_TREE_DEFAULT}"
+    export DOTBARE_DIR DOTBARE_TREE
+    
+    # Check if dotbare directory already exists
+    if [ -d "$DOTBARE_DIR" ]; then
+        # Verify it's a bare repository
+        if git --git-dir="$DOTBARE_DIR" rev-parse --is-bare-repository >/dev/null 2>&1; then
+            local current current_nc target_nc
+            current=$(git --git-dir="$DOTBARE_DIR" remote get-url origin 2>/dev/null || echo "")
+            target_nc=$(normalize_repo_url "$REPO_URL")
+            current_nc=$(normalize_repo_url "$current")
+            
+            if [ -n "$current" ] && [ "$current_nc" != "$target_nc" ]; then
+                if [ "${FORCE:-0}" -eq 1 ]; then
+                    printf "%b\n" "${BLD}${CYE}Remoto distinto detectado (${CBL}$current${CYE}). Reemplazando por ${CBL}$REPO_URL${CYE} por --force${CNC}"
+                    if git --git-dir="$DOTBARE_DIR" remote set-url origin "$REPO_URL" 2>>"$ERROR_LOG"; then
+                        printf "%b\n" "${BLD}${CGR}Remoto actualizado correctamente!${CNC}"
+                    else
+                        log_error "Error al actualizar el remoto de dotbare"
+                        printf "%b\n" "${BLD}${CRE}Error al actualizar el remoto de dotbare${CNC}"
+                    fi
+                else
+                    printf "%b\n" "${BLD}${CYE}Remoto existente distinto (${CBL}$current${CYE}). Se mantiene. Usa --force para cambiarlo.${CNC}"
+                fi
+            else
+                printf "%b\n" "${BLD}${CGR}dotbare ya inicializado y remoto correcto.${CNC}"
+            fi
+        else
+            printf "%b\n" "${BLD}${CRE}${DOTBARE_DIR} existe pero no parece un repo bare.${CNC}"
+            if [ "${FORCE:-0}" -eq 1 ]; then
+                printf "%b\n" "${BLD}${CYE}Moviendo directorio conflictivo a respaldo...${CNC}"
+                if mv "$DOTBARE_DIR" "${DOTBARE_DIR}.bak_$(date +%s)" 2>>"$ERROR_LOG"; then
+                    printf "%b\n" "${BLD}${CGR}Respaldo realizado correctamente.${CNC}"
+                else
+                    log_error "Error al respaldar el directorio conflictivo: $DOTBARE_DIR"
+                    printf "%b\n" "${BLD}${CRE}Error al respaldar el directorio conflictivo${CNC}"
+                    exit 1
+                fi
+            else
+                printf "%b\n" "${BLD}${CRE}Directorio en conflicto. Usa --force para respaldar y continuar.${CNC}"
+                exit 1
+            fi
+        fi
+    fi
+    
+    # Initialize dotbare if directory doesn't exist
+    if [ ! -d "$DOTBARE_DIR" ]; then
+        printf "%b\n" "${BLD}${CBL}Inicializando dotbare con tu repositorio...${CNC}"
+        
+        # Determine URL to use (SSH or HTTPS)
+        local FINAL_REPO_URL="$REPO_URL"
+        
+        # If URL is SSH, verify authentication
+        if [[ $REPO_URL =~ ^git@ ]]; then
+            if ! check_ssh_auth; then
+                # No SSH authentication, convert to HTTPS
+                FINAL_REPO_URL=$(ssh_to_https "$REPO_URL")
+                printf "%b\n" "${BLD}${CYE}SSH no disponible. Usando HTTPS: ${CBL}${FINAL_REPO_URL}${CNC}"
+            else
+                printf "%b\n" "${BLD}${CGR}Autenticación SSH detectada. Usando SSH.${CNC}"
+            fi
+        fi
+        
+        # Attempt to initialize with determined URL
+        if dotbare finit -u "$FINAL_REPO_URL" 2>>"$ERROR_LOG"; then
+            printf "%b\n" "${BLD}${CGR}dotbare inicializado correctamente!${CNC}"
+        else
+            # If failed and was SSH, try HTTPS as fallback
+            if [[ $REPO_URL =~ ^git@ ]] && [ "$FINAL_REPO_URL" = "$REPO_URL" ]; then
+                local HTTPS_URL
+                HTTPS_URL=$(ssh_to_https "$REPO_URL")
+                printf "%b\n" "${BLD}${CYE}Falló con SSH. Intentando con HTTPS: ${CBL}${HTTPS_URL}${CNC}"
+                if dotbare finit -u "$HTTPS_URL" 2>>"$ERROR_LOG"; then
+                    FINAL_REPO_URL="$HTTPS_URL"
+                    printf "%b\n" "${BLD}${CGR}dotbare inicializado correctamente con HTTPS!${CNC}"
+                else
+                    log_error "Error al inicializar dotbare (intentó SSH y HTTPS)"
+                    printf "%b\n" "${BLD}${CRE}Error al inicializar dotbare${CNC}"
+                    printf "%b\n" "${BLD}${CYE}Verifica que el repositorio existe y es accesible.${CNC}"
+                    return 1
+                fi
+            else
+                log_error "Error al inicializar dotbare"
+                printf "%b\n" "${BLD}${CRE}Error al inicializar dotbare${CNC}"
+                printf "%b\n" "${BLD}${CYE}Verifica que el repositorio existe y es accesible.${CNC}"
+                return 1
+            fi
+        fi
+    fi
+    
+    # Display success message (always show, like in monolithic version)
+    # Use FINAL_REPO_URL if defined, otherwise REPO_URL
+    local DISPLAY_URL="${FINAL_REPO_URL:-$REPO_URL}"
+    printf "%b\n" "${BLD}${CGR}dotbare listo! (${CBL}${DOTBARE_DIR}${CGR} ↔ ${CBL}${DISPLAY_URL}${CGR})${CNC}"
+    sleep 2
+}
+
+#######################################
+# Main function
+#######################################
+function main() {
+    if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+        usage
+        exit 0
+    fi
+    
+    # Ensure dotbare is available
+    if ! ensure_dotbare_available; then
+        log_error "No se pudo hacer dotbare disponible"
+        return 1
+    fi
+    
+    # Configure dotbare
+    configure_dotbare
+}
+
+# Execute only if invoked directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

@@ -1,0 +1,2464 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# shfmt: -ln=bash
+
+#==================================================
+#    ▐▌      ▐▌                      ▐▌
+#  ▟█▟▌ ▟█▙ ▐███ ▐█▙█▖ ▟██▖ █▟█▌ ▟██▖▐▙██▖▝█ █▌
+# ▐▛ ▜▌▐▛ ▜▌ ▐▌  ▐▌█▐▌ ▘▄▟▌ █▘  ▐▛  ▘▐▛ ▐▌ █▖█
+# ▐▌ ▐▌▐▌ ▐▌ ▐▌  ▐▌█▐▌▗█▀▜▌ █   ▐▌   ▐▌ ▐▌ ▐█▛
+# ▝█▄█▌▝█▄█▘ ▐▙▄ ▐▌█▐▌▐▙▄█▌ █   ▝█▄▄▌▐▌ ▐▌  █▌
+#  ▝▀▝▘ ▝▀▘   ▀▀ ▝▘▀▝▘ ▀▀▝▘ ▀    ▝▀▀ ▝▘ ▝▘  █
+#                                          █▌
+#   Autor   -   Roberto Flores
+#   Repo    -   https://github.com/25ASAB015/dotmarchy
+#   Última actualización - 12-nov-2025
+#
+#   dotmarchy - Script automatizado para instalar y configurar dotfiles
+#   en Arch Linux / Omarchy Linux con soporte multi-fuente de paquetes
+#
+# 	Copyright (C) 2025 dotmarchy <25ASAB015@ujmd.edu.sv>
+# 	Licenciado bajo GPL-3.0
+
+# 	Índice rápido de secciones:
+#  	1) Apariencia y opciones (colores, flags: --extras, --setup-env, --repo, rutas)
+#  	2) Logging y utilidades (log, info, debug, tiempo)
+#  	3) Encabezado visual (logo ASCII)
+#  	4) Manejo de errores (log_error, trap)
+#  	5) Utilidades internas (run, require_cmd, normalize_repo_url, is_installed)
+#  	6) Argumentos CLI (parseo de flags)
+#  	7) Interacción con usuario (welcome con detección de modos)
+#  	8) Dependencias:
+#  	   - Configuración del repositorio Chaotic-AUR
+#  	   - Instalación desde repositorios oficiales (pacman)
+#  	   - Instalación desde Chaotic-AUR (paru pre-compilado)
+#  	   - Instalación desde AUR (compilación con paru)
+#  	   - Instalación de paquetes npm globales (solo con --extras)
+#  	9) Configuración del entorno de desarrollo (solo con --setup-env)
+#  	   - Funciones helper: add_to_shell_config, clone_git_repo, download_script
+#  	   - Lectura de archivo de configuración: ~/.config/dotmarchy/setup.conf
+#  	   - Creación de directorios, clonado de repos, descarga de scripts
+#  	10) dotbare (configuración del gestor de dotfiles)
+#  	11) Main (flujo principal de ejecución)
+
+# Características principales:
+#   ✓ Sistema de paquetes core + extras personalizable
+#   ✓ Instalación desde 7 fuentes: pacman, Chaotic-AUR, AUR, npm, cargo, pip/pipx, gem, GitHub
+#   ✓ Configuración de entorno mediante archivo (~/.config/dotmarchy/setup.conf)
+#   ✓ Detección inteligente de paquetes ya instalados
+#   ✓ Configuración automática de PATH para todos los gestores de paquetes
+#   ✓ Soporte PEP 668 para Python en Arch Linux
+#   ✓ Verificación post-instalación y logging de errores
+#   ✓ Respaldos automáticos de configuraciones existentes
+#   ✓ Soporte SSH/HTTPS para repositorios de dotfiles
+#   ✓ Operaciones idempotentes (puede ejecutarse múltiples veces)
+
+# Uso rápido:
+#   dotmarchy                           # Instalación básica (paquetes core)
+#   dotmarchy --extras                  # Instalación completa (core + extras)
+#   dotmarchy --setup-env               # Configurar entorno de desarrollo
+#   dotmarchy --extras --setup-env      # Paquetes extras + configuración de entorno
+#   dotmarchy --repo URL                # Con repositorio personalizado
+#   dotmarchy --help                    # Muestra ayuda completa
+
+# Ejemplos:
+#   dotmarchy
+#   dotmarchy --extras
+#   dotmarchy --setup-env
+#   dotmarchy --extras --setup-env --repo git@github.com:usuario/dotfiles.git
+#   dotmarchy --repo https://github.com/usuario/dotfiles.git
+#   DRY_RUN=1 dotmarchy --extras       # Modo prueba (sin instalar)
+#   VERBOSE=1 dotmarchy --extras       # Modo verbose (depuración)
+#==================================================
+
+# Modo estricto: fallar ante errores y tuberías rotas
+set -Eeuo pipefail
+
+#==================================================
+# Apariencia (colores) y opciones
+#==================================================
+
+CRE=$(tput setaf 1 2> /dev/null || echo '') # Rojo
+CYE=$(tput setaf 3 2> /dev/null || echo '') # Amarillo
+CGR=$(tput setaf 2 2> /dev/null || echo '') # Verde
+CBL=$(tput setaf 4 2> /dev/null || echo '') # Azul
+BLD=$(tput bold 2> /dev/null || echo '')   # Negrita
+CNC=$(tput sgr0 2> /dev/null || echo '')   # Restablecer colores
+
+# Opciones por defecto
+DRY_RUN=0
+FORCE=0
+VERBOSE=0
+INSTALL_EXTRAS=0
+SETUP_ENVIRONMENT=0
+SKIP_SYSTEM=0
+VERIFY_MODE=0
+REPO_URL="git@github.com:25asab015/dotfiles.git"
+DOTBARE_DIR_DEFAULT="$HOME/.cfg"
+DOTBARE_TREE_DEFAULT="$HOME"
+
+# Rutas de configuración
+SETUP_CONFIG="$HOME/.config/dotmarchy/setup.conf"
+
+# Paquetes CORE (siempre se instalan)
+CORE_DEPENDENCIES="tree bat highlight ruby-coderay git-delta diff-so-fancy npm"
+
+# Paquetes extras por defecto (pueden ser sobrescritos por SETUP_CONFIG)
+DEFAULT_EXTRA_DEPENDENCIES="neovim tmux htop ripgrep fd fzf"
+DEFAULT_EXTRA_CHAOTIC_DEPENDENCIES="brave-bin visual-studio-code-bin"
+DEFAULT_EXTRA_AUR_APPS="zsh-theme-powerlevel10k-git zsh-autosuggestions zsh-syntax-highlighting"
+DEFAULT_EXTRA_NPM_PACKAGES="@fission-ai/openspec"
+
+# Arrays cargadas desde setup.conf (inicializadas para evitar advertencias)
+declare -a EXTRA_DEPENDENCIES=()
+declare -a EXTRA_CHAOTIC_DEPENDENCIES=()
+declare -a EXTRA_AUR_APPS=()
+declare -a EXTRA_NPM_PACKAGES=()
+declare -a CARGO_PACKAGES=()
+declare -a PIP_PACKAGES=()
+declare -a PIPX_PACKAGES=()
+declare -a GEM_PACKAGES=()
+declare -a DIRECTORIES=()
+declare -a GIT_REPOS=()
+declare -a SCRIPTS=()
+declare -a SHELL_LINES=()
+
+# Constantes y rutas
+ERROR_LOG="$HOME/.local/share/dotmarchy/install_errors.log" # Log de errores
+mkdir -p "$(dirname "$ERROR_LOG")" 2> /dev/null || true     # Asegurar carpeta
+
+# Estadísticas de instalación (para resumen final)
+INSTALL_START_TIME=$(date +%s)
+PACKAGES_INSTALLED=0
+PACKAGES_SKIPPED=0
+
+#==================================================
+# Logging y utilidades básicas
+#==================================================
+
+# Salida simple (aprovecha colores definidos más abajo)
+log() {
+    printf "%s\n" "$*"
+}
+
+info() {
+    printf "%b%s%b\n" "${CBL}" "$*" "${CNC}"
+}
+
+# Alias para compatibilidad con código de install_all_dependencies.sh
+print_info() {
+    info "$@"
+}
+
+warn() {
+    printf "%b%s%b\n" "${CYE}${BLD}" "$*" "${CNC}"
+}
+
+step() {
+    printf "%b»%b %s\n" "${BLD}${CBL}" "${CNC}" "$*"
+}
+
+# Mensajes de depuración controlados por VERBOSE
+debug() {
+    [ "${VERBOSE:-0}" -eq 1 ] && printf "%b… %s%b\n" "${BLD}" "$*" "${CNC}" || true
+}
+
+# Tiempo en milisegundos
+now_ms() { date +%s%3N 2> /dev/null || echo $(($(date +%s) * 1000)); }
+
+# Formatear duración ms → legible
+fmt_ms() {
+    ms=${1:-0}
+    if [ "$ms" -ge 1000 ]; then
+        s=$((ms / 1000))
+        t=$(((ms % 1000) / 100))
+        printf "%d.%ds" "$s" "$t"
+    else
+        printf "%dms" "$ms"
+    fi
+}
+
+#==================================================
+# Logo
+#==================================================
+logo() {
+    text="$1"
+    printf "%b" "
+   ▗▖                              ▗▖        
+   ▐▌      ▐▌                      ▐▌        
+ ▟█▟▌ ▟█▙ ▐███ ▐█▙█▖ ▟██▖ █▟█▌ ▟██▖▐▙██▖▝█ █▌
+▐▛ ▜▌▐▛ ▜▌ ▐▌  ▐▌█▐▌ ▘▄▟▌ █▘  ▐▛  ▘▐▛ ▐▌ █▖█ 
+▐▌ ▐▌▐▌ ▐▌ ▐▌  ▐▌█▐▌▗█▀▜▌ █   ▐▌   ▐▌ ▐▌ ▐█▛ 
+▝█▄█▌▝█▄█▘ ▐▙▄ ▐▌█▐▌▐▙▄█▌ █   ▝█▄▄▌▐▌ ▐▌  █▌ 
+ ▝▀▝▘ ▝▀▘   ▀▀ ▝▘▀▝▘ ▀▀▝▘ ▀    ▝▀▀ ▝▘ ▝▘  █  
+                                         █▌  
+
+   ${BLD}${CRE}[ ${CYE}${text} ${CRE}]${CNC}\n\n"
+}
+
+#==================================================
+# Manejo de errores
+#==================================================
+log_error() {
+    error_msg=$1
+    timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+
+    printf "%s" "[${timestamp}] ERROR: ${error_msg}\n" >> "$ERROR_LOG"
+    printf "%s%sERROR:%s %s\n" "${CRE}" "${BLD}" "${CNC}" "${error_msg}" >&2
+}
+
+# Handler de error y activación del trap
+on_error() {
+    exit_code=$?
+    line=${BASH_LINENO[0]:-UNKNOWN}
+    log_error "Fallo en la línea ${line}. Código: ${exit_code}"
+    exit "$exit_code"
+}
+trap on_error ERR
+
+#==================================================
+# Verificaciones iniciales
+#==================================================
+initial_checks() {
+    # Verificar que NO se ejecute como root
+    if [ "$(id -u)" = 0 ]; then
+        log_error "This script MUST NOT be run as root user."
+        exit 1
+    fi
+
+    # Verificar que se ejecute desde $HOME (evita confusiones de ruta)
+    if [ "$PWD" != "$HOME" ]; then
+        log_error "The script must be executed from HOME directory."
+        exit 1
+    fi
+
+    # Verificar conexión a internet (ping rápido a 8.8.8.8)
+    if ! ping -q -c 1 -W 1 8.8.8.8 > /dev/null 2>&1; then
+        log_error "No internet connection detected."
+        exit 1
+    fi
+
+    # Verificar que el sistema es Arch/Manjaro (requiere pacman)
+    if ! command -v pacman > /dev/null 2>&1; then
+        log_error "Este script está pensado para Arch/Manjaro (requiere pacman)."
+        exit 1
+    fi
+}
+
+#==================================================
+# Utilidades internas (helpers generales)
+#==================================================
+
+# Ejecuta un comando con descripción y cronometraje (respeta DRY_RUN)
+run() {
+    desc="$1"
+    shift
+    step "$desc"
+    debug "Comando: $*"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        log "   ↳ (dry-run) $*"
+        return 0
+    fi
+    start=$(now_ms)
+    "$@"
+    end=$(now_ms)
+    dur=$((end - start))
+    log "   ↳ ✔ Hecho en $(fmt_ms "$dur")"
+}
+
+# Verifica que un comando exista; si falta, aborta con código 127
+require_cmd() {
+    name="$1"
+    command -v "$name" > /dev/null 2>&1 || {
+        log_error "No se encontró el comando requerido: $name"
+        exit 127
+    }
+}
+
+# Normaliza URL de repo a forma comparable (host/owner/repo)
+normalize_repo_url() {
+    # Entrada: URL (ssh o https); Salida: host/owner/repo en minúsculas, sin .git
+    url="$1"
+    url=${url%%.git}
+    # ssh: git@github.com:owner/repo
+    if [[ $url =~ ^git@([^:]+):(.+)$ ]]; then
+        echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}" | tr '[:upper:]' '[:lower:]'
+        return 0
+    fi
+    # https: https://github.com/owner/repo
+    if [[ $url =~ ^https?://([^/]+)/(.+)$ ]]; then
+        echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}" | tr '[:upper:]' '[:lower:]'
+        return 0
+    fi
+    # Si ya es host/owner/repo
+    echo "$url" | tr '[:upper:]' '[:lower:]'
+}
+
+# Convierte URL SSH a HTTPS
+ssh_to_https() {
+    url="$1"
+    # ssh: git@github.com:owner/repo -> https://github.com/owner/repo
+    if [[ $url =~ ^git@([^:]+):(.+)$ ]]; then
+        host="${BASH_REMATCH[1]}"
+        path="${BASH_REMATCH[2]}"
+        # Si no termina en .git, agregarlo
+        [[ $path =~ \.git$ ]] || path="${path}.git"
+        echo "https://${host}/${path}"
+        return 0
+    fi
+    # Si ya es HTTPS, devolverla tal cual
+    echo "$url"
+}
+
+# Verifica si SSH está disponible para GitHub
+check_ssh_auth() {
+    # Intenta una conexión SSH a GitHub (timeout corto para no bloquear)
+    # GitHub responde con "Hi username! You've successfully authenticated" si funciona
+    # o "Permission denied" si no hay autenticación
+    ssh_output=$(ssh -T -o ConnectTimeout=5 -o StrictHostKeyChecking=no git@github.com 2>&1)
+    ssh_exit=$?
+
+    # Si la salida contiene "successfully authenticated", SSH está configurado
+    if echo "$ssh_output" | grep -qi "successfully authenticated"; then
+        return 0
+    fi
+
+    # Si el código de salida es 1 y contiene "Permission denied", no hay autenticación
+    if [ "$ssh_exit" -eq 1 ] && echo "$ssh_output" | grep -qi "permission denied\|publickey"; then
+        return 1
+    fi
+
+    # Otros errores (timeout, red, etc.) - asumir que no hay SSH disponible
+    return 1
+}
+
+#==================================================
+# Helpers para instalación multi-fuente
+#==================================================
+
+# Determina el directorio de NVM preferido (XDG primero, luego ~/.nvm)
+get_nvm_dir() {
+    local xdg="${XDG_CONFIG_HOME:-$HOME/.config}/nvm"
+    if [ -d "$xdg" ]; then
+        echo "$xdg"
+        return
+    fi
+    if [ -d "$HOME/.nvm" ]; then
+        echo "$HOME/.nvm"
+        return
+    fi
+    # preferir XDG si ninguno existe aún
+    echo "$xdg"
+}
+
+# Verifica utilidades base necesarias para descargas desde GitHub
+preflight_utils() {
+    local req=(curl wget jq tar unzip)
+    local missing=()
+    for c in "${req[@]}"; do
+        command -v "$c" > /dev/null 2>&1 || missing+=("$c")
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        if [ $SKIP_SYSTEM -eq 1 ]; then
+            log_error "Faltan utilidades requeridas: ${missing[*]}"
+            log_error "Ejecuta el instalador completo sin -s para instalarlas automáticamente."
+            exit 1
+        fi
+    fi
+}
+
+# Asegura Node.js >= 18 disponible; si no, intenta instalar con NVM (LTS)
+ensure_node_available() {
+    local need_install=
+    if command -v node > /dev/null 2>&1; then
+        local ver
+        ver=$(node -v 2> /dev/null | sed -E 's/^v([0-9]+).*/\1/')
+        if [ -z "${ver:-}" ] || [ "$ver" -lt 18 ]; then
+            print_info "Node.js < 18 detectado. Intentando usar NVM para instalar LTS ..."
+            need_install=1
+        fi
+    else
+        print_info "Node.js no detectado. Intentando instalar con NVM (LTS) ..."
+        need_install=1
+    fi
+    if [ "${need_install:-}" ]; then
+        # Cargar o instalar NVM
+        local NVM_DIR
+        NVM_DIR="$(get_nvm_dir)"
+        export NVM_DIR
+        if [ -s "$NVM_DIR/nvm.sh" ]; then
+		# shellcheck disable=SC1090,SC1091
+            . "$NVM_DIR/nvm.sh"
+        else
+            # Instalar NVM en NVM_DIR determinado
+            mkdir -p "$(dirname "$NVM_DIR")"
+            export NVM_DIR
+            curl -sS --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+			# shellcheck disable=SC1090,SC1091
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+        fi
+        if command -v nvm > /dev/null 2>&1; then
+            nvm install --lts > /dev/null 2>&1 || nvm install --lts
+            nvm use --lts > /dev/null 2>&1 || nvm use --lts
+        else
+            warn "No se pudo instalar/cargar NVM. Continuando con Node.js existente si lo hay."
+        fi
+    fi
+    # Asegurar npm prefix local cuando no se usa NVM
+    if ! command -v nvm > /dev/null 2>&1; then
+        export PATH="$HOME/.local/bin:$PATH"
+        # Si el prefix global apunta a /usr, ajústalo a local para evitar permisos
+        if command -v npm > /dev/null 2>&1; then
+            local prefix
+            prefix=$(npm config get prefix 2> /dev/null || echo "")
+            if [ -z "$prefix" ] || [ "$prefix" = "/usr" ] || [ "$prefix" = "/usr/local" ]; then
+                npm config set prefix "$HOME/.local" > /dev/null 2>&1 || true
+            fi
+        fi
+    fi
+    # Verificación final
+    if ! command -v npm > /dev/null 2>&1; then
+        log_error "npm no está disponible tras intentar instalar Node.js."
+        return 1
+    fi
+    return 0
+}
+
+#==================================================
+# Argumentos CLI (parseo de flags)
+#==================================================
+
+# Muestra ayuda breve de uso
+usage() {
+    cat << EOF
+Uso: $(basename "$0") [opciones] [REPO_URL]
+
+Opciones:
+  --repo URL      Especifica el repositorio de dotfiles a usar
+  --extras        Instala paquetes adicionales opcionales además de los core
+  --setup-env     Configura entorno de desarrollo (directorios, repos, scripts)
+  --verify        Verifica la instalación de herramientas sin instalar nada
+  -h, --help      Muestra esta ayuda y sale
+
+Posicional:
+  REPO_URL        Alternativamente puedes pasar la URL del repo como primer argumento
+
+Archivo de configuración:
+  ~/.config/dotmarchy/setup.conf   Define configuración para --setup-env
+
+Ejemplos:
+  $(basename "$0") --repo https://github.com/yo/mis-dotfiles.git
+  $(basename "$0") git@github.com:yo/mis-dotfiles.git
+  $(basename "$0") --extras
+  $(basename "$0") --extras --setup-env
+  $(basename "$0") --verify
+EOF
+}
+
+# Parsea opciones de línea de comandos
+parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --repo)
+                shift || true
+                REPO_URL="${1:-$REPO_URL}"
+                ;;
+            --extras)
+                INSTALL_EXTRAS=1
+                ;;
+            --setup-env)
+                SETUP_ENVIRONMENT=1
+                ;;
+            --verify)
+                VERIFY_MODE=1
+                ;;
+            -h | --help)
+                usage
+		return 0
+                ;;
+            -*)
+                log_error "Opción desconocida: $1"
+                usage
+                exit 2
+                ;;
+            *)
+                # Argumento posicional: URL del repo
+                REPO_URL="$1"
+                ;;
+        esac
+        shift || true
+    done
+}
+
+# Comprueba si un paquete está instalado vía pacman -Qq
+is_installed() {
+    pacman -Qq "$1" > /dev/null 2>&1
+}
+
+#==================================================
+# Interacción con el usuario (bienvenida)
+#==================================================
+
+# Mensaje de bienvenida y confirmación de continuación
+welcome() {
+    clear 2> /dev/null || true
+    logo "Bienvenido a dotmarchy, $USER"
+
+    # Encabezado principal
+    printf "%b" "${BLD}${CGR}Este script instalará y configurará tus dotfiles de forma segura y automatizada.${CNC}
+
+"
+
+	# ===== SECCIÓN 1: OPERACIONES BÁSICAS (siempre se ejecutan) =====
+	local core_count
+	core_count=$(echo "$CORE_DEPENDENCIES" | wc -w)
+
+    printf "%b" "${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CBL}  OPERACIONES BÁSICAS ${CGR}(se ejecutarán siempre)${CNC}
+${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+  ${CGR}✓${CNC} Actualización del sistema con ${BLD}pacman -Syu${CNC}
+  ${CGR}✓${CNC} Configuración del repositorio ${BLD}Chaotic-AUR${CNC}
+  ${CGR}✓${CNC} Instalación de paquetes CORE (${CYE}${core_count}${CNC} paquetes):
+      ${BLD}→${CNC} ${CYE}${CORE_DEPENDENCIES}${CNC}
+  ${CGR}✓${CNC} Configuración de ${BLD}dotbare${CNC} para gestión de dotfiles
+  ${CGR}✓${CNC} Clonado de repositorio: ${BLD}${CBL}$(basename "$REPO_URL" .git)${CNC}
+  ${CGR}✓${CNC} Respaldos automáticos de configuraciones existentes
+
+"
+
+    # ===== SECCIÓN 2: PAQUETES EXTRAS (opcional) =====
+    if [ "$INSTALL_EXTRAS" -eq 1 ]; then
+        # Cargar configuración para obtener paquetes reales que se instalarán
+        local dev_count=0
+        local chaotic_count=0
+        local aur_count=0
+        local npm_count=0
+        local cargo_count=0
+        local pipx_count=0
+        local gem_count=0
+
+        if [ -f "$SETUP_CONFIG" ]; then
+            # shellcheck source=/dev/null
+            source "$SETUP_CONFIG" 2> /dev/null || true
+
+            # Contar elementos de arrays
+            dev_count=${#EXTRA_DEPENDENCIES[@]}
+            chaotic_count=${#EXTRA_CHAOTIC_DEPENDENCIES[@]}
+            aur_count=${#EXTRA_AUR_APPS[@]}
+            npm_count=${#EXTRA_NPM_PACKAGES[@]}
+            cargo_count=${#CARGO_PACKAGES[@]}
+            pipx_count=${#PIPX_PACKAGES[@]}
+            gem_count=${#GEM_PACKAGES[@]}
+        else
+            # Usar defaults si no hay config
+            dev_count=$(echo "$DEFAULT_EXTRA_DEPENDENCIES" | wc -w)
+            chaotic_count=$(echo "$DEFAULT_EXTRA_CHAOTIC_DEPENDENCIES" | wc -w)
+            aur_count=$(echo "$DEFAULT_EXTRA_AUR_APPS" | wc -w)
+            npm_count=$(echo "$DEFAULT_EXTRA_NPM_PACKAGES" | wc -w)
+            cargo_count=3 # bob-nvim tree-sitter-cli stylua
+            pipx_count=11 # doq beautysh black ruff neovim-remote flake8 python-lsp-server pyright rich-cli trash-cli codespell
+            gem_count=1 # neovim
+        fi
+
+        local github_count=7 # NVM, Lua-LS, lazygit, gh, zoxide, tldr, deno
+        local total_extras=$((dev_count + chaotic_count + aur_count + npm_count + cargo_count + pipx_count + gem_count + github_count))
+
+        printf "%b" "${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CBL}  PAQUETES EXTRAS ${CGR}(--extras ACTIVADO ✓)${CNC}
+${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+  ${CGR}✓${CNC} ${BLD}Total de paquetes extras a instalar: ${CYE}$total_extras${CNC}
+  ${CBL}ℹ${CNC}  Incluyendo paquetes del sistema, npm, cargo, python, ruby, y GitHub
+
+"
+
+        if [ "$dev_count" -gt 0 ]; then
+            printf "%b" "  ${CGR}✓${CNC} Paquetes desde repositorios oficiales (${CYE}$dev_count${CNC} paquetes)\n"
+        fi
+
+        if [ "$chaotic_count" -gt 0 ]; then
+            printf "%b" "  ${CGR}✓${CNC} Paquetes desde Chaotic-AUR (${CYE}$chaotic_count${CNC} paquetes)\n"
+        fi
+
+        if [ "$aur_count" -gt 0 ]; then
+            printf "%b" "  ${CGR}✓${CNC} Paquetes desde AUR (${CYE}$aur_count${CNC} paquetes)\n"
+        fi
+
+        if [ "$npm_count" -gt 0 ]; then
+            printf "%b" "  ${CGR}✓${CNC} Paquetes globales de npm (${CYE}$npm_count${CNC} paquetes)\n"
+        fi
+
+        if [ "$cargo_count" -gt 0 ]; then
+            printf "%b" "  ${CGR}✓${CNC} Paquetes de Rust/Cargo (${CYE}$cargo_count${CNC} paquetes)\n"
+        fi
+
+        if [ "$pipx_count" -gt 0 ]; then
+            printf "%b" "  ${CGR}✓${CNC} Aplicaciones Python/pipx (${CYE}$pipx_count${CNC} paquetes)\n"
+        fi
+
+        if [ "$gem_count" -gt 0 ]; then
+            printf "%b" "  ${CGR}✓${CNC} Gemas de Ruby (${CYE}$gem_count${CNC} paquete(s))\n"
+        fi
+
+        # Herramientas de GitHub (siempre se instalan con --extras)
+        printf "%b" "  ${CGR}✓${CNC} Herramientas desde GitHub (${CYE}7${CNC} herramientas):\n"
+        printf "%b" "      ${BLD}→${CNC} ${CYE}NVM, Lua-LS, lazygit, gh, zoxide, tldr, deno${CNC}\n"
+
+        printf "%b" "
+  ${CBL}ℹ${CNC}  Personaliza estos paquetes en: ${CBL}${SETUP_CONFIG}${CNC}
+
+"
+    else
+        printf "%b" "${BLD}${CYE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CYE}  PAQUETES EXTRAS ${CRE}(--extras NO activado ✗)${CNC}
+${BLD}${CYE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+  ${CYE}⚠${CNC}  Solo se instalarán los ${core_count} paquetes CORE básicos.
+  
+  ${CGR}💡 Activa --extras para instalar ~100+ paquetes adicionales desde:${CNC}
+      ${BLD}→${CNC} Repositorios oficiales (pacman) - herramientas del sistema
+      ${BLD}→${CNC} Chaotic-AUR (binarios precompilados) - apps populares
+      ${BLD}→${CNC} AUR (compilación local) - temas y plugins
+      ${BLD}→${CNC} npm (paquetes globales) - Language Servers y herramientas JS
+      ${BLD}→${CNC} cargo (Rust) - herramientas modernas (bob, tree-sitter, stylua)
+      ${BLD}→${CNC} pipx (Python) - formatters, linters, LSPs
+      ${BLD}→${CNC} gem (Ruby) - cliente Neovim
+      ${BLD}→${CNC} GitHub releases - lazygit, gh, zoxide, tldr, deno, etc.
+
+  ${BLD}Uso:${CNC} ${CYE}dotmarchy --extras${CNC}
+  ${BLD}Personaliza:${CNC} ${CBL}${SETUP_CONFIG}${CNC}
+  ${BLD}Ver paquetes que se instalarían:${CNC} ${CYE}dotmarchy --extras${CNC} (cancelar en el prompt)
+
+"
+    fi
+
+    # ===== SECCIÓN 3: CONFIGURACIÓN DE ENTORNO (opcional) =====
+    if [ "$SETUP_ENVIRONMENT" -eq 1 ]; then
+        # Contar elementos desde el archivo de configuración si existe
+        local dir_count=0
+        local repo_count=0
+        local script_count=0
+        local shell_count=0
+
+        if [ -f "$SETUP_CONFIG" ]; then
+            # shellcheck source=/dev/null
+            source "$SETUP_CONFIG" 2> /dev/null || true
+            dir_count=${#DIRECTORIES[@]}
+            repo_count=${#GIT_REPOS[@]}
+            script_count=${#SCRIPTS[@]}
+            shell_count=${#SHELL_LINES[@]}
+        fi
+
+        printf "%b" "${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CBL}  CONFIGURACIÓN DE ENTORNO ${CGR}(--setup-env ACTIVADO ✓)${CNC}
+${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+"
+        if [ -f "$SETUP_CONFIG" ] && [ $((dir_count + repo_count + script_count + shell_count)) -gt 0 ]; then
+            printf "%b" "  ${CGR}✓${CNC} Configuración cargada desde: ${CBL}$SETUP_CONFIG${CNC}
+      ${BLD}→${CNC} ${CYE}$dir_count${CNC} directorios a crear
+      ${BLD}→${CNC} ${CYE}$repo_count${CNC} repositorios Git a clonar
+      ${BLD}→${CNC} ${CYE}$script_count${CNC} scripts a descargar
+      ${BLD}→${CNC} ${CYE}$shell_count${CNC} líneas a agregar a la shell config
+
+"
+        else
+            printf "%b" "  ${CYE}⚠${CNC}  Archivo de configuración no encontrado o vacío
+  ${CBL}ℹ${CNC}  Crea el archivo: ${CBL}${SETUP_CONFIG}${CNC}
+  ${CBL}ℹ${CNC}  Usa como plantilla: ${CBL}setup.conf.example${CNC}
+
+"
+        fi
+    else
+        printf "%b" "${BLD}${CYE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CYE}  CONFIGURACIÓN DE ENTORNO ${CRE}(--setup-env NO activado ✗)${CNC}
+${BLD}${CYE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+  ${CYE}⚠${CNC}  No se configurará el entorno de desarrollo.
+  
+  ${CGR}💡 Activa --setup-env para:${CNC}
+      ${BLD}→${CNC} Crear directorios de trabajo automáticamente
+      ${BLD}→${CNC} Clonar repositorios Git necesarios
+      ${BLD}→${CNC} Descargar scripts y herramientas
+      ${BLD}→${CNC} Configurar tu shell (.zshrc/.bashrc)
+
+  ${BLD}Uso:${CNC} ${CYE}dotmarchy --setup-env${CNC}
+  ${BLD}Config:${CNC} ${CBL}${SETUP_CONFIG}${CNC}
+
+"
+    fi
+
+    # ===== SECCIÓN 4: GARANTÍAS DE SEGURIDAD =====
+    printf "%b" "${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+${BLD}${CBL}  GARANTÍAS DE SEGURIDAD${CNC}
+${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+
+  ${CGR}✓${CNC} NO requiere ni permite ejecución como root
+  ${CGR}✓${CNC} NO modifica configuraciones críticas del sistema
+  ${CGR}✓${CNC} Todos los cambios son reversibles (backups automáticos)
+  ${CGR}✓${CNC} Logging completo en: ${CBL}${ERROR_LOG}${CNC}
+
+"
+
+    # ===== PROMPT DE CONFIRMACIÓN =====
+    while :; do
+        printf " %b" "${BLD}${CGR}¿Deseas continuar con esta configuración?${CNC} [s/N]: "
+        read -r yn
+        case "$yn" in
+            [SsYy])
+                break
+                ;;
+            [Nn] | "")
+                printf "\n%b\n" "${BLD}${CYE}Operación cancelada${CNC}"
+                exit 0
+                ;;
+            *)
+                printf "\n%b\n" "${BLD}${CRE}Error:${CNC} Digita '${BLD}${CYE}s/y${CNC}' para sí o '${BLD}${CYE}n${CNC}' para no"
+                ;;
+        esac
+    done
+}
+
+#==================================================
+# Dependencias (repositorios y paquetes)
+#==================================================
+
+# Añade el repositorio chaotic-aur (keyring, mirrorlist y entrada en pacman.conf)
+add_chaotic_repo() {
+    clear 2> /dev/null || true
+    logo "Agregar el repositorio chaotic-aur"
+    repo_name="chaotic-aur"
+    key_id="3056513887B78AEB"
+    sleep 2
+
+    # Mensaje de configuración del repositorio
+    printf "%b\n" "${BLD}${CYE}Instalando el repositorio ${CBL}${repo_name}${CYE}...${CNC}"
+
+    # Verificar si ya existe la sección en pacman.conf
+    if grep -q "\[${repo_name}\]" /etc/pacman.conf; then
+        printf "%b\n" "\n${BLD}${CYE}El repositorio ya existe en pacman.conf${CNC}"
+        sleep 3
+        return 0
+    fi
+
+    # Gestión de clave GPG
+    if ! pacman-key -l | grep -q "$key_id"; then
+        printf "%b\n" "${BLD}${CYE}Agregando la llave GPG...${CNC}"
+        if ! sudo pacman-key --recv-key "$key_id" --keyserver keyserver.ubuntu.com 2>&1 | tee -a "$ERROR_LOG" > /dev/null; then
+            log_error "Error al recibir la llave GPG"
+            return 1
+        fi
+
+        printf "%b\n" "${BLD}${CYE}Firmando la llave GPG localmente...${CNC}"
+        if ! sudo pacman-key --lsign-key "$key_id" 2>&1 | tee -a "$ERROR_LOG" > /dev/null; then
+            log_error "Error al firmar la llave GPG"
+            return 1
+        fi
+    else
+        printf "\n%b\n" "${BLD}${CYE}La llave GPG ya existe en el keyring${CNC}"
+    fi
+
+    # Instalación de paquetes requeridos
+    chaotic_pkgs="chaotic-keyring chaotic-mirrorlist"
+    for pkg in $chaotic_pkgs; do
+        if ! pacman -Qq "$pkg" > /dev/null 2>&1; then
+            printf "%b\n" "${BLD}${CYE}Instalando ${CBL}${pkg}${CNC}"
+            if ! sudo pacman -U --noconfirm "https://cdn-mirror.chaotic.cx/chaotic-aur/${pkg}.pkg.tar.zst" 2>&1 | tee -a "$ERROR_LOG" > /dev/null; then
+                log_error "Error al instalar ${pkg}"
+                return 1
+            fi
+        else
+            printf "%b\n" "${BLD}${CYE}${pkg} ya está instalado${CNC}"
+        fi
+    done
+
+    # Agregar configuración del repositorio
+    printf "\n%b\n" "${BLD}${CYE}Agregando el repositorio a pacman.conf...${CNC}"
+    if ! printf "\n[%s]\nInclude = /etc/pacman.d/chaotic-mirrorlist\n" "$repo_name" \
+                                                                                 | sudo tee -a /etc/pacman.conf > /dev/null 2>> "$ERROR_LOG"; then
+        log_error "Error al agregar la configuración del repositorio"
+        return 1
+    fi
+
+    printf "%b\n" "\n${BLD}${CBL}${repo_name} ${CGR}Repositorio configurado correctamente!${CNC}"
+    sleep 3
+}
+
+#--------------------------------------------------
+# Dependencias desde repos oficiales (pacman)
+#--------------------------------------------------
+
+install_dependencies() {
+    clear 2> /dev/null || true
+    logo "Instalando las dependencias necesarias desde los repositorios oficiales..."
+    sleep 2
+
+    # Verificar si reflector está instalado y actualizar el mirrorlist
+    sudo pacman -Syy
+
+    # Lista de dependencias (repos oficiales) - usar variable global CORE_DEPENDENCIES
+    dependencies="$CORE_DEPENDENCIES"
+
+    # Si --extras está activado, agregar paquetes extras
+    if [ "$INSTALL_EXTRAS" -eq 1 ]; then
+        # Cargar desde config o usar defaults
+        local extra_deps=""
+        if [ -f "$SETUP_CONFIG" ]; then
+            # shellcheck source=/dev/null
+            source "$SETUP_CONFIG"
+            # Usar EXTRA_DEPENDENCIES del config o default
+            extra_deps="${EXTRA_DEPENDENCIES[*]:-$DEFAULT_EXTRA_DEPENDENCIES}"
+        else
+            extra_deps="$DEFAULT_EXTRA_DEPENDENCIES"
+        fi
+
+        dependencies="$dependencies $extra_deps"
+        printf "\n%b\n" "${BLD}${CYE}[--extras] Incluyendo paquetes adicionales opcionales${CNC}"
+    fi
+
+    printf "\n%b\n\n" "${BLD}${CBL}Verificando las dependencias necesarias...${CNC}"
+    sleep 2
+
+    # Detectar paquetes faltantes
+    missing_pkgs=()
+    for pkg in $dependencies; do
+        if ! is_installed "$pkg"; then
+            missing_pkgs+=("$pkg")
+            printf "%b\n" " ${BLD}${CYE}$pkg ${CRE}no instalado${CNC}"
+        else
+            printf "%b\n" "${BLD}${CGR}$pkg ${CBL}ya está instalado${CNC}"
+        fi
+    done
+
+    # Instalación por lotes si es necesario
+    if [ "${#missing_pkgs[@]}" -gt 0 ]; then
+        count="${#missing_pkgs[@]}"
+        printf "\n%b\n\n" "${BLD}${CYE}Instalando $count paquetes, por favor espera...${CNC}"
+
+        if sudo pacman -S --noconfirm "${missing_pkgs[@]}" 2>&1 | tee -a "$ERROR_LOG" >/dev/null; then
+            # Verificar instalación completa
+            failed_pkgs=()
+            for pkg in "${missing_pkgs[@]}"; do
+                if ! is_installed "$pkg"; then
+                    failed_pkgs+=("$pkg")
+                    log_error "Error al instalar: $pkg"
+                fi
+            done
+
+            # Mostrar resultados finales
+            if [ "${#failed_pkgs[@]}" -eq 0 ]; then
+                printf "%b\n\n" "${BLD}${CGR}Todos los paquetes se han instalado correctamente!${CNC}"
+            else
+                fail_count="${#failed_pkgs[@]}"
+                printf "%b\n" "${BLD}${CRE}Error al instalar $fail_count paquetes:${CNC}"
+                printf "%b\n\n" "  ${BLD}${CYE}${failed_pkgs[*]}${CNC}"
+            fi
+        else
+            log_error "Error crítico durante la instalación por lotes"
+            printf "%b\n" "${BLD}${CRE}Error al instalar! Verifica el log para más detalles${CNC}"
+            return 1
+        fi
+    else
+        printf "%b\n" "\n${BLD}${CGR}Todas las dependencias ya están instaladas${CNC}"
+    fi
+
+    sleep 3
+}
+
+#--------------------------------------------------
+# Dependencias desde chaotic (ej. paru)
+#--------------------------------------------------
+
+install_chaotic_dependencies() {
+    clear 2> /dev/null || true
+    logo "Instalando las dependencias necesarias desde el repositorio chaotic"
+    sleep 2
+
+    # Lista de dependencias (chaotic)
+    chaotic_dependencies="paru"
+
+    # Si --extras está activado, agregar paquetes extras
+    if [ "$INSTALL_EXTRAS" -eq 1 ]; then
+        # Cargar desde config o usar defaults
+        local extra_chaotic=""
+        if [ -f "$SETUP_CONFIG" ]; then
+            # shellcheck source=/dev/null
+            source "$SETUP_CONFIG"
+            # Usar EXTRA_CHAOTIC_DEPENDENCIES del config o default
+            extra_chaotic="${EXTRA_CHAOTIC_DEPENDENCIES[*]:-$DEFAULT_EXTRA_CHAOTIC_DEPENDENCIES}"
+        else
+            extra_chaotic="$DEFAULT_EXTRA_CHAOTIC_DEPENDENCIES"
+        fi
+
+        chaotic_dependencies="$chaotic_dependencies $extra_chaotic"
+        printf "\n%b\n" "${BLD}${CYE}[--extras] Incluyendo paquetes adicionales opcionales desde Chaotic-AUR${CNC}"
+    fi
+
+    printf "%b\n\n" "${BLD}${CBL}Verificando las dependencias necesarias...${CNC}"
+    sleep 2
+
+    # Detectar paquetes faltantes
+    missing_chaotic_pkgs=""
+    for pkg in $chaotic_dependencies; do
+        if ! is_installed "$pkg"; then
+            missing_chaotic_pkgs="$missing_chaotic_pkgs $pkg"
+            printf "%b\n" " ${BLD}${CYE}$pkg ${CRE}no instalado${CNC}"
+        else
+            printf "%b\n" "${BLD}${CGR}$pkg ${CBL}ya está instalado${CNC}"
+        fi
+    done
+
+    # Instalación por lotes si es necesario
+    if [ -n "$(printf "%s" "$missing_chaotic_pkgs" | tr -s ' ')" ]; then
+        count=$(printf "%s" "$missing_chaotic_pkgs" | wc -w)
+        printf "\n%b\n\n" "${BLD}${CYE}Instalando $count paquetes, por favor espera...${CNC}"
+
+		if sudo pacman -S --noconfirm "$missing_chaotic_pkgs" 2>&1 | tee -a "$ERROR_LOG" >/dev/null; then
+            # Verificar instalación completa
+            failed_chaotic_pkgs=""
+            for pkg in $missing_chaotic_pkgs; do
+                if ! is_installed "$pkg"; then
+                    failed_chaotic_pkgs="$failed_chaotic_pkgs $pkg"
+                    log_error "Error al instalar: $pkg"
+                fi
+            done
+
+            # Mostrar resultados finales
+            if [ -z "$(printf "%s" "$failed_chaotic_pkgs" | tr -s ' ')" ]; then
+                printf "%b\n\n" "${BLD}${CGR}Todos los paquetes se han instalado correctamente!${CNC}"
+            else
+                fail_count=$(printf "%s" "$failed_chaotic_pkgs" | wc -w)
+                printf "%b\n" "${BLD}${CRE}Error al instalar $fail_count paquetes:${CNC}"
+                printf "%b\n\n" "  ${BLD}${CYE}$(printf "%s" "$failed_chaotic_pkgs")${CNC}"
+            fi
+        else
+            log_error "Error crítico durante la instalación por lotes"
+            printf "%b\n" "${BLD}${CRE}Error al instalar Verifica el log para más detalles${CNC}"
+            return 1
+        fi
+    else
+        printf "\n%b\n" "${BLD}${CGR}Todas las dependencias ya están instaladas!${CNC}"
+    fi
+
+    sleep 3
+}
+
+#--------------------------------------------------
+# Dependencias desde AUR (extras)
+#--------------------------------------------------
+
+install_aur_dependencies() {
+    clear 2> /dev/null || true
+    logo "Instalando las dependencias necesarias desde AUR..."
+    sleep 2
+
+    # Lista de paquetes AUR adicionales
+    aur_apps="dotbare"
+
+    # Si --extras está activado, agregar paquetes extras
+    if [ "$INSTALL_EXTRAS" -eq 1 ]; then
+        # Cargar desde config o usar defaults
+        local extra_aur=""
+        if [ -f "$SETUP_CONFIG" ]; then
+            # shellcheck source=/dev/null
+            source "$SETUP_CONFIG"
+            # Usar EXTRA_AUR_APPS del config o default
+            extra_aur="${EXTRA_AUR_APPS[*]:-$DEFAULT_EXTRA_AUR_APPS}"
+        else
+            extra_aur="$DEFAULT_EXTRA_AUR_APPS"
+        fi
+
+        aur_apps="$aur_apps $extra_aur"
+        printf "\n%b\n" "${BLD}${CYE}[--extras] Incluyendo paquetes adicionales opcionales desde AUR${CNC}"
+    fi
+
+    printf "%b\n\n" "${BLD}${CBL}Verificando las dependencias necesarias...${CNC}"
+    sleep 2
+
+    # Detectar paquetes faltantes AUR
+    missing_aur=""
+    for pkg in $aur_apps; do
+        if ! is_installed "$pkg"; then
+            missing_aur="$missing_aur $pkg"
+            printf "%b\n" " ${BLD}${CYE}$pkg ${CRE}no instalado${CNC}"
+        else
+            printf "%b\n" "${BLD}${CGR}$pkg ${CBL}ya está instalado${CNC}"
+        fi
+    done
+
+    # Instalación por lotes AUR si es necesario
+    if [ -n "$(printf "%s" "$missing_aur" | tr -s ' ')" ]; then
+        count=$(printf "%s" "$missing_aur" | wc -w)
+        printf "\n%b\n\n" "${BLD}${CYE}Instalando $count paquetes AUR, por favor espera...${CNC}"
+
+        aur_failed=""
+        for pkg in $missing_aur; do
+            printf "%b\n" "${BLD}${CBL}Processing: ${pkg}${CNC}"
+
+            if paru -S --skipreview --noconfirm "$pkg" >> "$ERROR_LOG" 2>&1; then
+                printf "%b\n" "  ${BLD}${CGR}Se ha instalado correctamente!${CNC}"
+            else
+                log_error "Error al instalar el paquete AUR$pkg"
+                aur_failed="$aur_failed $pkg"
+                printf "%b\n" "  ${BLD}${CRE}Error al instalar${CNC}"
+            fi
+            sleep 0.5
+        done
+
+        # Mostrar resultados finales
+        if [ -n "$(printf "%s" "$aur_failed" | tr -s ' ')" ]; then
+            fail_count=$(printf "%s" "$aur_failed" | wc -w)
+            printf "%b\n" "\n${BLD}${CRE}Error al instalar $fail_count/$count paquetes AUR:${CNC}"
+            printf "%b\n\n" "${BLD}${CYE}$(printf "%s" "$aur_failed")${CNC}"
+        else
+            printf "\n%b\n\n" "${BLD}${CGR}Todos los paquetes AUR se han instalado correctamente!${CNC}"
+        fi
+    else
+        printf "\n%b\n\n" "${BLD}${CGR}Todas las dependencias AUR ya están instaladas!${CNC}"
+    fi
+
+    sleep 3
+}
+
+#--------------------------------------------------
+# Dependencias desde NPM (paquetes globales)
+#--------------------------------------------------
+
+install_npm_dependencies() {
+    # Solo ejecutar si --extras está activado
+    if [ "$INSTALL_EXTRAS" -ne 1 ]; then
+        return 0
+    fi
+
+    clear 2> /dev/null || true
+    logo "Instalando paquetes npm globales..."
+    sleep 2
+
+    # Verificar que npm esté instalado
+    if ! command -v npm > /dev/null 2>&1; then
+        log_error "npm no está instalado. No se pueden instalar paquetes npm."
+        return 1
+    fi
+
+    # Cargar lista de paquetes npm desde config o usar defaults
+    local npm_packages=""
+    if [ -f "$SETUP_CONFIG" ]; then
+        # shellcheck source=/dev/null
+        source "$SETUP_CONFIG"
+        # Usar EXTRA_NPM_PACKAGES del config o default
+        npm_packages="${EXTRA_NPM_PACKAGES[*]:-$DEFAULT_EXTRA_NPM_PACKAGES}"
+    else
+        npm_packages="$DEFAULT_EXTRA_NPM_PACKAGES"
+    fi
+
+    printf "\n%b\n" "${BLD}${CYE}[--extras] Instalando paquetes npm globales...${CNC}"
+    printf "%b\n\n" "${BLD}${CBL}Verificando paquetes npm...${CNC}"
+    sleep 2
+
+    # Detectar paquetes npm faltantes
+    missing_npm=""
+    for pkg in $npm_packages; do
+        # Verificar si el paquete está instalado globalmente
+        # Usar npm list -g --depth=0 y grep para una verificación confiable
+        if npm list -g --depth=0 2> /dev/null | grep -q "$pkg@"; then
+            printf "%b\n" "${BLD}${CGR}$pkg ${CBL}ya está instalado${CNC}"
+        else
+            missing_npm="$missing_npm $pkg"
+            printf "%b\n" " ${BLD}${CYE}$pkg ${CRE}no instalado${CNC}"
+        fi
+    done
+
+    # Instalación de paquetes npm faltantes
+    if [ -n "$(printf "%s" "$missing_npm" | tr -s ' ')" ]; then
+        count=$(printf "%s" "$missing_npm" | wc -w)
+        printf "\n%b\n\n" "${BLD}${CYE}Instalando $count paquetes npm, por favor espera...${CNC}"
+
+        npm_failed=""
+        for pkg in $missing_npm; do
+            printf "%b\n" "${BLD}${CBL}Instalando: ${pkg}${CNC}"
+
+            if npm install -g "$pkg" >> "$ERROR_LOG" 2>&1; then
+                printf "%b\n" "  ${BLD}${CGR}Se ha instalado correctamente!${CNC}"
+            else
+                log_error "Error al instalar el paquete npm: $pkg"
+                npm_failed="$npm_failed $pkg"
+                printf "%b\n" "  ${BLD}${CRE}Error al instalar${CNC}"
+            fi
+            sleep 0.5
+        done
+
+        # Mostrar resultados finales
+        if [ -n "$(printf "%s" "$npm_failed" | tr -s ' ')" ]; then
+            fail_count=$(printf "%s" "$npm_failed" | wc -w)
+            printf "%b\n" "\n${BLD}${CRE}Error al instalar $fail_count/$count paquetes npm:${CNC}"
+            printf "%b\n\n" "${BLD}${CYE}$(printf "%s" "$npm_failed")${CNC}"
+        else
+            printf "\n%b\n\n" "${BLD}${CGR}Todos los paquetes npm se han instalado correctamente!${CNC}"
+        fi
+    else
+        printf "\n%b\n\n" "${BLD}${CGR}Todos los paquetes npm ya están instalados!${CNC}"
+    fi
+
+    sleep 3
+}
+
+#--------------------------------------------------
+# Dependencias de Rust (cargo)
+#--------------------------------------------------
+
+install_cargo_packages() {
+    # Solo ejecutar si --extras está activado
+    if [ "$INSTALL_EXTRAS" -ne 1 ]; then
+        return 0
+    fi
+
+    clear 2> /dev/null || true
+    logo "Instalando Herramientas de Rust (cargo)"
+    sleep 2
+
+    # Verificar que cargo esté instalado
+    if ! command -v cargo > /dev/null 2>&1; then
+        warn "cargo no está instalado. Instalando rustup..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        # shellcheck source=/dev/null
+        [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
+    fi
+
+    # Cargar lista de paquetes cargo desde config o usar defaults
+    local cargo_packages=""
+    if [ -f "$SETUP_CONFIG" ]; then
+        # shellcheck source=/dev/null
+        source "$SETUP_CONFIG"
+        cargo_packages="${CARGO_PACKAGES[*]:-bob-nvim tree-sitter-cli stylua}"
+    else
+        cargo_packages="bob-nvim tree-sitter-cli stylua"
+    fi
+
+    printf "\n%b\n" "${BLD}${CYE}[--extras] Instalando herramientas de Rust...${CNC}"
+    printf "%b\n\n" "${BLD}${CBL}Verificando paquetes cargo...${CNC}"
+    sleep 2
+
+    # Detectar paquetes faltantes
+    missing_cargo=""
+    for pkg in $cargo_packages; do
+        # Algunos paquetes tienen nombres diferentes en cargo vs binario
+        local bin_name="$pkg"
+        [[ $pkg == "bob-nvim" ]] && bin_name="bob"
+        [[ $pkg == "tree-sitter-cli" ]] && bin_name="tree-sitter"
+
+        if command -v "$bin_name" > /dev/null 2>&1; then
+            printf "%b\n" "${BLD}${CGR}$pkg ${CBL}ya está instalado${CNC}"
+        else
+            missing_cargo="$missing_cargo $pkg"
+            printf "%b\n" " ${BLD}${CYE}$pkg ${CRE}no instalado${CNC}"
+        fi
+    done
+
+    # Instalación de paquetes cargo faltantes
+    if [ -n "$(printf "%s" "$missing_cargo" | tr -s ' ')" ]; then
+        count=$(printf "%s" "$missing_cargo" | wc -w)
+        printf "\n%b\n\n" "${BLD}${CYE}Instalando $count paquetes cargo, por favor espera...${CNC}"
+
+        cargo_failed=""
+        for pkg in $missing_cargo; do
+            printf "%b\n" "${BLD}${CBL}Instalando: ${pkg}${CNC}"
+
+            if cargo install "$pkg" >> "$ERROR_LOG" 2>&1; then
+                printf "%b\n" "  ${BLD}${CGR}Se ha instalado correctamente!${CNC}"
+            else
+                log_error "Error al instalar el paquete cargo: $pkg"
+                cargo_failed="$cargo_failed $pkg"
+                printf "%b\n" "  ${BLD}${CRE}Error al instalar${CNC}"
+            fi
+            sleep 0.5
+        done
+
+        # Mostrar resultados finales
+        if [ -n "$(printf "%s" "$cargo_failed" | tr -s ' ')" ]; then
+            fail_count=$(printf "%s" "$cargo_failed" | wc -w)
+            printf "%b\n" "\n${BLD}${CRE}Error al instalar $fail_count/$count paquetes cargo:${CNC}"
+            printf "%b\n\n" "${BLD}${CYE}$(printf "%s" "$cargo_failed")${CNC}"
+        else
+            printf "\n%b\n\n" "${BLD}${CGR}Todos los paquetes cargo se han instalado correctamente!${CNC}"
+        fi
+    else
+        printf "\n%b\n\n" "${BLD}${CGR}Todos los paquetes cargo ya están instalados!${CNC}"
+    fi
+
+    sleep 3
+}
+
+#--------------------------------------------------
+# Dependencias de Python (pip/pipx)
+#--------------------------------------------------
+
+install_python_packages() {
+    # Solo ejecutar si --extras está activado
+    if [ "$INSTALL_EXTRAS" -ne 1 ]; then
+        return 0
+    fi
+
+    clear 2> /dev/null || true
+    logo "Instalando Paquetes de Python (pip/pipx)"
+    sleep 2
+
+    # Verificar que python esté instalado
+    if ! command -v python3 > /dev/null 2>&1; then
+        log_error "python3 no está instalado. Instálalo primero."
+        return 1
+    fi
+
+    # Detectar si estamos en Arch Linux (PEP 668)
+    local use_pipx_only=0
+    if [ -f /etc/os-release ]; then
+        # shellcheck source=/dev/null
+        . /etc/os-release
+        if [ "${ID:-}" = "arch" ] || [[ ${ID_LIKE:-} == *"arch"* ]]; then
+            print_info "Detectado Arch Linux - usando solo pipx para evitar PEP 668"
+            use_pipx_only=1
+        fi
+    fi
+
+    # Asegurar que pipx esté instalado
+    print_info "Verificando pipx..."
+    if ! command -v pipx > /dev/null 2>&1; then
+        if [ $use_pipx_only -eq 1 ]; then
+            log_error "pipx no está instalado. Instala python-pipx con pacman primero."
+            return 1
+        else
+            python3 -m pip install --user pipx 2>&1 | grep -v "Requirement already satisfied" || true
+        fi
+    fi
+
+    # Asegurar que el PATH incluya pipx
+    pipx ensurepath --force 2>&1 | grep -v "already in PATH" || true
+    export PATH="$HOME/.local/bin:$PATH"
+
+    # Paquetes pip (bibliotecas) - solo si NO es Arch
+    if [ $use_pipx_only -eq 0 ]; then
+        local pip_packages=""
+        if [ -f "$SETUP_CONFIG" ]; then
+            # shellcheck source=/dev/null
+            source "$SETUP_CONFIG"
+            pip_packages="${PIP_PACKAGES[*]:-pynvim jedi pygments}"
+        else
+            pip_packages="pynvim jedi pygments"
+        fi
+
+        print_info "Instalando bibliotecas de Python con pip..."
+        for pkg in $pip_packages; do
+            print_info "Instalando $pkg"
+            python3 -m pip install --user "$pkg" 2>&1 | grep -v "Requirement already satisfied" || true
+        done
+    else
+        print_info "Saltando paquetes pip - usando solo pipx en Arch Linux"
+    fi
+
+    # Paquetes pipx (aplicaciones)
+    local pipx_packages=""
+    if [ -f "$SETUP_CONFIG" ]; then
+        # shellcheck source=/dev/null
+        source "$SETUP_CONFIG"
+        pipx_packages="${PIPX_PACKAGES[*]:-doq beautysh black ruff neovim-remote flake8 python-lsp-server pyright rich-cli trash-cli codespell}"
+    else
+        pipx_packages="doq beautysh black ruff neovim-remote flake8 python-lsp-server pyright rich-cli trash-cli codespell"
+    fi
+
+    # Agregar pynvim para Arch
+    if [ $use_pipx_only -eq 1 ]; then
+        pipx_packages="pynvim $pipx_packages"
+    fi
+
+    print_info "Instalando aplicaciones de Python con pipx..."
+    for pkg in $pipx_packages; do
+        local check_cmd="${pkg}"
+        [[ $pkg == "neovim-remote" ]] && check_cmd="nvr"
+        [[ $pkg == "python-lsp-server" ]] && check_cmd="pylsp"
+        [[ $pkg == "rich-cli" ]] && check_cmd="rich"
+        [[ $pkg == "trash-cli" ]] && check_cmd="trash"
+        [[ $pkg == "pynvim" ]] && check_cmd="skip"
+
+        if [ "$check_cmd" != "skip" ] && command -v "$check_cmd" > /dev/null 2>&1; then
+            printf "%b\n" "${BLD}${CGR}$pkg ${CBL}ya está instalado${CNC}"
+        else
+            print_info "Instalando $pkg"
+            # Para pynvim en Arch, lo inyectamos en un venv existente
+            if [ "$pkg" = "pynvim" ] && [ $use_pipx_only -eq 1 ]; then
+                if pipx list 2>&1 | grep -q "python-lsp-server"; then
+                    pipx inject python-lsp-server pynvim 2>&1 | grep -v "already installed" || true
+                    printf "%b\n" "  ${BLD}${CGR}pynvim inyectado en python-lsp-server${CNC}"
+                else
+                    # Crear un venv dummy solo para pynvim
+                    python3 -m venv "$HOME/.local/share/pynvim-venv" 2> /dev/null || true
+                    "$HOME/.local/share/pynvim-venv/bin/pip" install pynvim 2>&1 | grep -v "Requirement already satisfied" || true
+                    printf "%b\n" "  ${BLD}${CGR}pynvim instalado en venv dedicado${CNC}"
+                fi
+            else
+                if pipx install "$pkg" --force 2>&1 | grep -v "already seems to be installed"; then
+                    printf "%b\n" "  ${BLD}${CGR}$pkg instalado correctamente${CNC}"
+                else
+                    warn "$pkg puede estar ya instalado"
+                fi
+            fi
+        fi
+    done
+
+    sleep 3
+}
+
+#--------------------------------------------------
+# Dependencias de Ruby (gem)
+#--------------------------------------------------
+
+install_ruby_packages() {
+    # Solo ejecutar si --extras está activado
+    if [ "$INSTALL_EXTRAS" -ne 1 ]; then
+        return 0
+    fi
+
+    clear 2> /dev/null || true
+    logo "Instalando Gemas de Ruby (gem)"
+    sleep 2
+
+    # Verificar que gem esté instalado
+    if ! command -v gem > /dev/null 2>&1; then
+        log_error "gem no está instalado. Instala Ruby primero."
+        return 1
+    fi
+
+    # Cargar lista de gemas desde config o usar defaults
+    local gem_packages=""
+    if [ -f "$SETUP_CONFIG" ]; then
+        # shellcheck source=/dev/null
+        source "$SETUP_CONFIG"
+        gem_packages="${GEM_PACKAGES[*]:-neovim}"
+    else
+        gem_packages="neovim"
+    fi
+
+    printf "\n%b\n" "${BLD}${CYE}[--extras] Instalando gemas de Ruby...${CNC}"
+    printf "%b\n\n" "${BLD}${CBL}Verificando gemas...${CNC}"
+    sleep 2
+
+    for pkg in $gem_packages; do
+        if gem list -i "^${pkg}$" > /dev/null 2>&1; then
+            printf "%b\n" "${BLD}${CGR}$pkg ${CBL}ya está instalado${CNC}"
+        else
+            print_info "Instalando $pkg"
+            if gem install "$pkg" --user-install 2>&1 | grep -v "WARNING"; then
+                printf "%b\n" "  ${BLD}${CGR}$pkg instalado correctamente${CNC}"
+            else
+                warn "$pkg instalado pero con advertencias de PATH"
+            fi
+        fi
+    done
+
+    sleep 3
+}
+
+#--------------------------------------------------
+# Herramientas desde GitHub
+#--------------------------------------------------
+
+install_github_tools() {
+    # Solo ejecutar si --extras está activado
+    if [ "$INSTALL_EXTRAS" -ne 1 ]; then
+        return 0
+    fi
+
+    clear 2> /dev/null || true
+    logo "Instalando Herramientas desde GitHub"
+    sleep 2
+
+    # Preflight utilidades base
+    preflight_utils
+
+    # Crear directorio local si no existe
+    mkdir -p "$HOME/.local/bin"
+    export PATH="$HOME/.local/bin:$PATH"
+
+	# Autenticación opcional para la API de GitHub
+	local AUTH_HEADER=()
+	if [ "${GITHUB_TOKEN:-}" ]; then
+		AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+	elif [ "${GH_TOKEN:-}" ]; then
+		AUTH_HEADER=(-H "Authorization: Bearer ${GH_TOKEN}")
+	fi
+
+    printf "\n%b\n" "${BLD}${CYE}[--extras] Instalando herramientas desde GitHub...${CNC}"
+    printf "%b\n\n" "${BLD}${CBL}Descargando binarios...${CNC}"
+    sleep 2
+
+    # NVM (Node Version Manager)
+    {
+        NVM_DIR="$(get_nvm_dir)"
+        export NVM_DIR
+    }
+    if [ ! -d "$NVM_DIR" ]; then
+        print_info "Instalando NVM (Node Version Manager)..."
+        mkdir -p "$(dirname "$NVM_DIR")"
+        curl -sS --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+		# shellcheck disable=SC1090,SC1091
+        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+        printf "%b\n" "  ${BLD}${CGR}NVM instalado${CNC}"
+    else
+        printf "%b\n" "${BLD}${CGR}NVM ${CBL}ya está instalado${CNC}"
+    fi
+
+    # Lua Language Server (si no está en repos)
+    if ! command -v lua-language-server > /dev/null 2>&1; then
+        print_info "Instalando Lua Language Server desde GitHub..."
+        local arch
+        arch=$(uname -m)
+        [[ $arch == "aarch64" ]] && arch="arm64"
+        [[ $arch == "x86_64" ]] && arch="x64"
+
+        # shellcheck disable=SC2086
+        local url
+		url=$(curl -s "${AUTH_HEADER[@]}" --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 https://api.github.com/repos/LuaLS/lua-language-server/releases/latest \
+                                                                                                                                                                | jq -r ".assets[] | select(.name | contains(\"linux-$arch\")) | .browser_download_url")
+
+        if [ -n "$url" ]; then
+            wget -q --tries=3 --timeout=30 "$url" -O /tmp/lua-ls.tar.gz
+            mkdir -p "$HOME/.local/share/lua-language-server"
+            tar -xzf /tmp/lua-ls.tar.gz -C "$HOME/.local/share/lua-language-server"
+            cat > "$HOME/.local/bin/lua-language-server" << 'EOF'
+#!/usr/bin/env bash
+exec "$HOME/.local/share/lua-language-server/bin/lua-language-server" "$@"
+EOF
+            chmod +x "$HOME/.local/bin/lua-language-server"
+            rm /tmp/lua-ls.tar.gz
+            printf "%b\n" "  ${BLD}${CGR}Lua Language Server instalado${CNC}"
+        fi
+    else
+        printf "%b\n" "${BLD}${CGR}lua-language-server ${CBL}ya está instalado${CNC}"
+    fi
+
+    # lazygit
+    if ! command -v lazygit > /dev/null 2>&1; then
+        print_info "Instalando lazygit desde GitHub..."
+        local arch
+        arch=$(uname -m)
+        # shellcheck disable=SC2086
+        local url
+		url=$(curl -s "${AUTH_HEADER[@]}" --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 https://api.github.com/repos/jesseduffield/lazygit/releases/latest \
+                                                                                                                                                            | jq -r ".assets[] | select(.name | contains(\"Linux_$arch\")) | .browser_download_url")
+
+        if [ -n "$url" ]; then
+            wget -q --tries=3 --timeout=30 "$url" -O /tmp/lazygit.tar.gz
+            tar -xzf /tmp/lazygit.tar.gz -C /tmp
+            mv /tmp/lazygit "$HOME/.local/bin/"
+            chmod +x "$HOME/.local/bin/lazygit"
+            rm /tmp/lazygit.tar.gz
+            printf "%b\n" "  ${BLD}${CGR}lazygit instalado${CNC}"
+        fi
+    else
+        printf "%b\n" "${BLD}${CGR}lazygit ${CBL}ya está instalado${CNC}"
+    fi
+
+    # gh (GitHub CLI)
+    if ! command -v gh > /dev/null 2>&1; then
+        print_info "Instalando GitHub CLI desde GitHub..."
+        local arch
+        arch=$(uname -m)
+        [[ $arch == "aarch64" ]] && arch="arm64"
+        [[ $arch == "x86_64" ]] && arch="amd64"
+
+        # shellcheck disable=SC2086
+        local url
+		url=$(curl -s "${AUTH_HEADER[@]}" --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 https://api.github.com/repos/cli/cli/releases/latest \
+                                                                                                                                              | jq -r ".assets[] | select(.name | contains(\"linux_$arch.tar.gz\")) | .browser_download_url")
+
+        if [ -n "$url" ]; then
+            wget -q --tries=3 --timeout=30 "$url" -O /tmp/gh.tar.gz
+            tar -xzf /tmp/gh.tar.gz -C /tmp
+            cp /tmp/gh_*/bin/gh "$HOME/.local/bin/"
+            chmod +x "$HOME/.local/bin/gh"
+            rm -rf /tmp/gh.tar.gz /tmp/gh_*
+            printf "%b\n" "  ${BLD}${CGR}gh instalado${CNC}"
+        fi
+    else
+        printf "%b\n" "${BLD}${CGR}gh ${CBL}ya está instalado${CNC}"
+    fi
+
+    # zoxide
+    if ! command -v zoxide > /dev/null 2>&1; then
+        print_info "Instalando zoxide..."
+        curl -sS --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash
+        printf "%b\n" "  ${BLD}${CGR}zoxide instalado${CNC}"
+    else
+        printf "%b\n" "${BLD}${CGR}zoxide ${CBL}ya está instalado${CNC}"
+    fi
+
+    # tealdeer (tldr)
+    if ! command -v tldr > /dev/null 2>&1; then
+        print_info "Instalando tealdeer (tldr)..."
+        local arch
+        arch=$(uname -m)
+        [[ $arch == "aarch64" ]] && arch="arm-musleabi"
+        [[ $arch == "x86_64" ]] && arch="x86_64-musl"
+
+        # shellcheck disable=SC2086
+        local url
+		url=$(curl -s "${AUTH_HEADER[@]}" --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 https://api.github.com/repos/dbrgn/tealdeer/releases/latest \
+                                                                                                                                                     | jq -r ".assets[] | select(.name | contains(\"linux-$arch\")) | .browser_download_url")
+
+        if [ -n "$url" ]; then
+            wget -q --tries=3 --timeout=30 "$url" -O "$HOME/.local/bin/tldr"
+            chmod +x "$HOME/.local/bin/tldr"
+            "$HOME/.local/bin/tldr" --update > /dev/null 2>&1 || true
+            printf "%b\n" "  ${BLD}${CGR}tealdeer instalado${CNC}"
+        fi
+    else
+        printf "%b\n" "${BLD}${CGR}tldr ${CBL}ya está instalado${CNC}"
+    fi
+
+    # Deno
+    if ! command -v deno > /dev/null 2>&1; then
+        print_info "Instalando Deno..."
+        curl -fsSL --connect-timeout 5 --max-time 30 --retry 3 --retry-delay 2 https://deno.land/x/install/install.sh | DENO_INSTALL="$HOME/.local" sh
+        printf "%b\n" "  ${BLD}${CGR}Deno instalado${CNC}"
+    else
+        printf "%b\n" "${BLD}${CGR}deno ${CBL}ya está instalado${CNC}"
+    fi
+
+    sleep 3
+}
+
+#--------------------------------------------------
+# Configuración del PATH
+#--------------------------------------------------
+
+configure_path() {
+    clear 2> /dev/null || true
+    logo "Configurando Variables de Entorno (PATH)"
+    sleep 2
+
+    local shell_config=""
+    local shell_name=""
+
+    # Detectar shell y archivo de configuración
+    if [ -n "${ZSH_VERSION:-}" ] || [ -f "$HOME/.zshrc" ]; then
+        shell_config="$HOME/.zshrc"
+        shell_name="zsh"
+    elif [ -n "${BASH_VERSION:-}" ] || [ -f "$HOME/.bashrc" ]; then
+        shell_config="$HOME/.bashrc"
+        shell_name="bash"
+    fi
+
+    if [ -z "$shell_config" ]; then
+        warn "No se pudo detectar shell. Configura el PATH manualmente."
+        return
+    fi
+
+    print_info "Configurando PATH en $shell_config..."
+
+    # Crear backup del archivo de configuración
+    cp "$shell_config" "${shell_config}.backup-$(date +%Y%m%d-%H%M%S)"
+
+    # Agregar configuración de PATH si no existe
+    local marker="# dotmarchy - Configuración de PATH automática"
+
+    if ! grep -q "$marker" "$shell_config" 2> /dev/null; then
+        cat >> "$shell_config" << 'PATHEOF'
+
+# dotmarchy - Configuración de PATH automática
+# Cargo (Rust) binaries
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# Local binaries
+export PATH="$HOME/.local/bin:$PATH"
+
+# Ruby gems (descubrir versión automáticamente)
+if [ -d "$HOME/.local/share/gem/ruby" ]; then
+  GEM_BIN="$(echo "$HOME/.local/share/gem/ruby"/*/bin 2>/dev/null | awk '{print $1}')"
+  [ -d "$GEM_BIN" ] && export PATH="$GEM_BIN:$PATH"
+fi
+
+# Luarocks
+export PATH="$HOME/.luarocks/bin:$PATH"
+
+# Go binaries (si se usan)
+export PATH="$HOME/go/bin:$PATH"
+
+# NVM (Node Version Manager) - prioriza XDG, luego ~/.nvm
+export NVM_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nvm"
+[ -d "$NVM_DIR" ] || NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+# Deno
+export DENO_INSTALL="$HOME/.local"
+export PATH="$DENO_INSTALL/bin:$PATH"
+
+# pynvim venv (si existe - para Arch)
+[ -d "$HOME/.local/share/pynvim-venv/bin" ] && export PATH="$HOME/.local/share/pynvim-venv/bin:$PATH"
+
+PATHEOF
+        printf "%b\n" "  ${BLD}${CGR}Configuración de PATH agregada a $shell_config${CNC}"
+    else
+        printf "%b\n" "  ${BLD}${CGR}Configuración de PATH ya existe en $shell_config${CNC}"
+    fi
+
+    # Configurar para Fish si está instalado
+    if command -v fish > /dev/null 2>&1 && [ -d "$HOME/.config/fish" ]; then
+        local fish_config="$HOME/.config/fish/config.fish"
+        [ -f "$fish_config" ] || touch "$fish_config"
+
+        if ! grep -q "dotmarchy - Configuración de PATH" "$fish_config" 2> /dev/null; then
+            cat >> "$fish_config" << 'FISHEOF'
+
+# dotmarchy - Configuración de PATH automática
+set -gx PATH $HOME/.cargo/bin $PATH
+set -gx PATH $HOME/.local/bin $PATH
+set -gx PATH $HOME/.luarocks/bin $PATH
+set -gx PATH $HOME/go/bin $PATH
+set -gx DENO_INSTALL $HOME/.local
+set -gx PATH $DENO_INSTALL/bin $PATH
+FISHEOF
+            printf "%b\n" "  ${BLD}${CGR}Configuración de PATH agregada a Fish shell${CNC}"
+        fi
+    fi
+
+    echo ""
+    printf "%b\n" "  ${BLD}${CGR}PATH configurado correctamente!${CNC}"
+    echo ""
+    printf "%b\n" "${CYE}${BLD}IMPORTANTE:${CNC} Para aplicar los cambios, ejecuta:"
+    echo ""
+    printf "%b\n" "  ${CGR}source $shell_config${CNC}"
+    printf "%b\n" "  ${CGR}exec $shell_name${CNC}"
+    echo ""
+    printf "%b\n" "O simplemente ${BLD}cierra y vuelve a abrir tu terminal${CNC}"
+    echo ""
+
+    sleep 3
+}
+
+#==================================================
+# Despedida y resumen final
+#==================================================
+
+farewell() {
+	local end_time
+	local duration
+	local minutes
+	local seconds
+
+	end_time=$(date +%s)
+	duration=$((end_time - INSTALL_START_TIME))
+	minutes=$((duration / 60))
+	seconds=$((duration % 60))
+
+	clear 2>/dev/null || true
+
+	printf "%b" "${BLD}${CGR}
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║   ▗▖                              ▗▖                                 ║
+║   ▐▌      ▐▌                      ▐▌                                 ║
+║ ▟█▟▌ ▟█▙ ▐███ ▐█▙█▖ ▟██▖ █▟█▌ ▟██▖▐▙██▖▝█ █▌                         ║
+║▐▛ ▜▌▐▛ ▜▌ ▐▌  ▐▌█▐▌ ▘▄▟▌ █▘  ▐▛  ▘▐▛ ▐▌ █▖█                          ║
+║▐▌ ▐▌▐▌ ▐▌ ▐▌  ▐▌█▐▌▗█▀▜▌ █   ▐▌   ▐▌ ▐▌ ▐█▛                          ║
+║▝█▄█▌▝█▄█▘ ▐▙▄ ▐▌█▐▌▐▙▄█▌ █   ▝█▄▄▌▐▌ ▐▌  █▌                          ║
+║ ▝▀▝▘ ▝▀▘   ▀▀ ▝▘▀▝▘ ▀▀▝▘ ▀    ▝▀▀ ▝▘ ▝▘  █                           ║
+║                                         █▌                           ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+${CNC}\n"
+
+	printf "%b" "${BLD}${CBL}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    🎉 INSTALACIÓN COMPLETADA 🎉
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${CNC}\n"
+
+	printf "\n%b" "${BLD}${CYE}⏱  Tiempo total: ${CGR}${minutes}m ${seconds}s${CNC}\n\n"
+	printf "%b" "${BLD}${CBL}═══ RESUMEN DE OPERACIONES ═══${CNC}\n\n"
+
+	printf "%b" "${CGR}✓${CNC} ${BLD}Operaciones completadas:${CNC}\n"
+	printf "%b" "  ${CGR}→${CNC} Sistema actualizado con ${BLD}pacman -Syu${CNC}\n"
+	printf "%b" "  ${CGR}→${CNC} Repositorio ${BLD}Chaotic-AUR${CNC} configurado\n"
+	printf "%b" "  ${CGR}→${CNC} Paquetes ${BLD}CORE${CNC} instalados\n"
+	if [ "$INSTALL_EXTRAS" -eq 1 ]; then
+		printf "%b" "  ${CGR}→${CNC} Paquetes ${BLD}EXTRAS${CNC} instalados (pacman, AUR, npm, cargo, pipx, gem, GitHub)\n"
+		if [ "$PACKAGES_INSTALLED" -gt 0 ]; then
+			printf "%b" "  ${CGR}→${CNC} ${BLD}${PACKAGES_INSTALLED}${CNC} paquete(s) nuevo(s) instalado(s)\n"
+		fi
+		if [ "$PACKAGES_SKIPPED" -gt 0 ]; then
+			printf "%b" "  ${CGR}→${CNC} ${BLD}${PACKAGES_SKIPPED}${CNC} paquete(s) ya instalado(s) ${CBL}(omitidos)${CNC}\n"
+		fi
+		if [ "$PACKAGES_INSTALLED" -eq 0 ] && [ "$PACKAGES_SKIPPED" -eq 0 ]; then
+			printf "%b" "  ${CGR}→${CNC} Todos los paquetes extras procesados correctamente\n"
+		fi
+	fi
+
+	if [ "$SETUP_ENVIRONMENT" -eq 1 ]; then
+		printf "%b" "  ${CGR}→${CNC} Entorno de desarrollo ${BLD}configurado${CNC}\n"
+	fi
+
+	printf "%b" "  ${CGR}→${CNC} Configuración de ${BLD}dotbare${CNC} completada\n"
+	printf "%b" "  ${CGR}→${CNC} Variables de entorno ${BLD}PATH${CNC} configuradas\n"
+	printf "%b" "  ${CGR}→${CNC} Dotfiles clonados desde ${BLD}$(basename "$REPO_URL" .git)${CNC}\n"
+
+	echo ""
+
+	if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
+		local error_count
+		error_count=$(wc -l <"$ERROR_LOG" 2>/dev/null || echo 0)
+		if [ "$error_count" -gt 0 ]; then
+			printf "%b" "${CYE}⚠${CNC} ${BLD}Advertencias encontradas: ${CYE}$error_count${CNC}\n"
+			printf "%b" "  ${CBL}→${CNC} Ver detalles en: ${CBL}$ERROR_LOG${CNC}\n\n"
+		fi
+	fi
+
+	printf "%b" "${BLD}${CBL}═══ PRÓXIMOS PASOS ═══${CNC}\n\n"
+	printf "%b" "${BLD}${CGR}1.${CNC} ${BLD}Aplica la configuración de PATH:${CNC}\n"
+	if [ -f "$HOME/.zshrc" ]; then
+		printf "%b" "   ${CGR}\$ ${CYE}source ~/.zshrc${CNC}\n"
+	elif [ -f "$HOME/.bashrc" ]; then
+		printf "%b" "   ${CGR}\$ ${CYE}source ~/.bashrc${CNC}\n"
+	fi
+	printf "%b" "   ${CBL}(o cierra y vuelve a abrir tu terminal)${CNC}\n\n"
+
+	printf "%b" "${BLD}${CGR}2.${CNC} ${BLD}Verifica que las herramientas estén disponibles:${CNC}\n"
+	printf "%b" "   ${CGR}\$ ${CYE}dotmarchy --verify${CNC}\n\n"
+
+	if [ "$INSTALL_EXTRAS" -eq 1 ]; then
+		printf "%b" "${BLD}${CGR}3.${CNC} ${BLD}Instala Neovim con bob (si aún no lo tienes):${CNC}\n"
+		printf "%b" "   ${CGR}\$ ${CYE}bob install stable${CNC}\n"
+		printf "%b" "   ${CGR}\$ ${CYE}bob use stable${CNC}\n\n"
+	fi
+
+	printf "%b" "${BLD}${CBL}═══ RECURSOS ÚTILES ═══${CNC}\n\n"
+	printf "%b" "  ${CBL}📖${CNC} Documentación: ${CBL}https://github.com/25ASAB015/dotmarchy${CNC}\n"
+	printf "%b" "  ${CBL}🔍${CNC} Verificación:  ${CYE}dotmarchy --verify${CNC}\n"
+	printf "%b" "  ${CBL}📝${CNC} Log de errores: ${CBL}$ERROR_LOG${CNC}\n"
+	printf "%b" "  ${CBL}⚙️${CNC}  Configuración:  ${CBL}~/.config/dotmarchy/setup.conf${CNC}\n\n"
+
+	printf "%b" "${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}\n"
+	printf "%b" "
+${BLD}${CGR}    ¡Gracias por usar dotmarchy!${CNC} ${CBL}Tu entorno está listo.${CNC} ${CYE}✨🚀${CNC}
+    
+    ${CBL}Personaliza tu configuración en ${CYE}~/.config/dotmarchy/setup.conf${CNC}
+    ${CBL}y vuelve a ejecutar ${CYE}dotmarchy --extras${CBL} para actualizar.${CNC}
+    
+${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}
+\n"
+
+	sleep 2
+}
+
+
+
+#==================================================
+# Verificación de instalación
+#==================================================
+
+# Variables globales para conteo de verificación
+SUCCESS_COUNT=0
+FAIL_COUNT=0
+WARNING_COUNT=0
+FAILED_TOOLS=()
+WARNING_TOOLS=()
+
+# Verifica si un comando/herramienta está instalado
+check_tool() {
+    local cmd="$1"
+    local name="$2"
+    local optional="${3:-false}"
+
+    if command -v "$cmd" > /dev/null 2>&1; then
+        local version=""
+
+        # Casos especiales para comandos que no tienen --version o se comportan diferente
+        case "$cmd" in
+            tsserver)
+                # tsserver no tiene --version funcional, verificar que typescript esté instalado
+                if command -v tsc > /dev/null 2>&1; then
+                    version=$(tsc --version 2>&1)
+                else
+                    version="Instalado (parte de typescript)"
+                fi
+                ;;
+            yaml-language-server | bash-language-server | vim-language-server)
+                # Algunos language servers pueden no responder bien a --version
+                version=$(timeout 2 "$cmd" --version 2>&1 | head -1 || echo "Instalado")
+                ;;
+            *)
+                # Comportamiento por defecto con timeout para evitar congelamientos
+                version=$(timeout 2 "$cmd" --version 2>&1 | head -1 || echo "")
+                ;;
+        esac
+
+        printf "%b\n" "${CGR}✓${CNC} ${BLD}$name${CNC}"
+        [ -n "$version" ] && printf "%b\n" "  ${CBL}→${CNC} $version"
+        : $((SUCCESS_COUNT++))
+        return 0
+    else
+        if [ "$optional" = "true" ]; then
+            printf "%b\n" "${CYE}⚠${CNC} ${BLD}$name${CNC} - ${CYE}No instalado (opcional)${CNC}"
+            WARNING_TOOLS+=("$name")
+            : $((WARNING_COUNT++))
+        else
+            printf "%b\n" "${CRE}✗${CNC} ${BLD}$name${CNC} - ${CRE}No encontrado${CNC}"
+            FAILED_TOOLS+=("$name")
+            : $((FAIL_COUNT++))
+        fi
+        return 1
+    fi
+}
+
+# Verifica si un path está en PATH
+check_path() {
+    local path="$1"
+    local name="$2"
+
+    if [[ ":$PATH:" == *":$path:"* ]]; then
+        printf "%b\n" "${CGR}✓${CNC} ${BLD}$name${CNC} está en PATH"
+        printf "%b\n" "  ${CBL}→${CNC} $path"
+        : $((SUCCESS_COUNT++))
+    else
+        printf "%b\n" "${CRE}✗${CNC} ${BLD}$name${CNC} no está en PATH"
+        printf "%b\n" "  ${CYE}→${CNC} Ejecuta: export PATH=\"$path:\$PATH\""
+        FAILED_TOOLS+=("$name (PATH)")
+        : $((FAIL_COUNT++))
+    fi
+}
+
+# Función principal de verificación
+verify_installation() {
+    clear 2> /dev/null || true
+    logo "Verificación de Instalación - dotmarchy"
+
+    printf "\n%b\n" "${BLD}${CBL}Verificando herramientas instaladas...${CNC}\n"
+
+    # Reiniciar contadores
+    SUCCESS_COUNT=0
+    FAIL_COUNT=0
+    WARNING_COUNT=0
+    FAILED_TOOLS=()
+    WARNING_TOOLS=()
+
+    # ===== PATH =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Verificando PATH ━━━${CNC}\n"
+    check_path "$HOME/.local/bin" "Local binaries"
+    check_path "$HOME/.cargo/bin" "Cargo (Rust)"
+    # Verificar Ruby gems
+    if command -v ruby > /dev/null 2>&1; then
+        RUBY_VERSION=$(ruby -e 'puts RUBY_VERSION' 2> /dev/null || echo "")
+        if [ -n "$RUBY_VERSION" ]; then
+            check_path "$HOME/.local/share/gem/ruby/$RUBY_VERSION/bin" "Ruby gems"
+        fi
+    fi
+
+    # ===== Herramientas Esenciales =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Herramientas Esenciales ━━━${CNC}\n"
+    check_tool "git" "Git"
+    check_tool "curl" "Curl"
+    check_tool "wget" "Wget"
+    check_tool "jq" "JQ (JSON processor)"
+    check_tool "tar" "Tar"
+    check_tool "unzip" "Unzip"
+
+    # ===== Compiladores y Build Tools =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Compiladores y Build Tools ━━━${CNC}\n"
+    check_tool "gcc" "GCC"
+    check_tool "g++" "G++"
+    check_tool "make" "Make"
+    check_tool "cmake" "CMake"
+
+    # ===== Lenguajes de Programación =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Lenguajes de Programación ━━━${CNC}\n"
+    check_tool "python3" "Python 3"
+    check_tool "pip3" "Pip3" "true"
+    check_tool "pipx" "Pipx"
+    check_tool "node" "Node.js"
+    check_tool "npm" "NPM"
+    check_tool "ruby" "Ruby"
+    check_tool "gem" "RubyGems"
+    check_tool "cargo" "Cargo (Rust)"
+    check_tool "lua" "Lua" "true"
+    check_tool "luarocks" "LuaRocks" "true"
+
+    # ===== Búsqueda y Navegación =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Búsqueda y Navegación ━━━${CNC}\n"
+    check_tool "rg" "Ripgrep"
+    check_tool "fzf" "FZF"
+    check_tool "fd" "fd-find"
+    check_tool "bat" "Bat"
+    check_tool "lsd" "LSD" "true"
+    check_tool "eza" "Eza" "true"
+    check_tool "zoxide" "Zoxide" "true"
+
+    # ===== Herramientas de Desarrollo =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Herramientas de Desarrollo ━━━${CNC}\n"
+    check_tool "lazygit" "Lazygit" "true"
+    check_tool "gh" "GitHub CLI" "true"
+    check_tool "bob" "Bob (Neovim Version Manager)"
+    check_tool "nvim" "Neovim" "true"
+
+    # ===== Language Servers =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Language Servers ━━━${CNC}\n"
+    check_tool "lua-language-server" "Lua Language Server"
+    check_tool "ccls" "CCLS (C/C++ LSP)" "true"
+    check_tool "rust-analyzer" "Rust Analyzer" "true"
+    check_tool "pylsp" "Python LSP"
+    check_tool "pyright" "Pyright"
+    check_tool "tsserver" "TypeScript Server"
+    check_tool "vim-language-server" "Vim Language Server" "true"
+    check_tool "yaml-language-server" "YAML Language Server"
+    check_tool "bash-language-server" "Bash Language Server"
+
+    # ===== Formatters y Linters =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Formatters y Linters ━━━${CNC}\n"
+    check_tool "stylua" "Stylua (Lua formatter)"
+    check_tool "black" "Black (Python formatter)"
+    check_tool "ruff" "Ruff (Python linter)"
+    check_tool "beautysh" "Beautysh (Shell formatter)" "true"
+    check_tool "flake8" "Flake8 (Python linter)"
+    check_tool "eslint_d" "ESLint_d" "true"
+    check_tool "prettier" "Prettier (Code formatter)"
+
+    # ===== Tree-sitter =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Tree-sitter ━━━${CNC}\n"
+    check_tool "tree-sitter" "Tree-sitter CLI"
+
+    # ===== Herramientas Adicionales =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Herramientas Adicionales ━━━${CNC}\n"
+    check_tool "nvr" "Neovim Remote"
+    check_tool "figlet" "Figlet" "true"
+    check_tool "lolcat" "Lolcat" "true"
+    check_tool "tldr" "Tealdeer (tldr)" "true"
+    check_tool "deno" "Deno" "true"
+    check_tool "nodemon" "Nodemon (Node.js dev tool)" "true"
+
+    # ===== Gestores de Versiones =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Gestores de Versiones ━━━${CNC}\n"
+    if [ -d "$HOME/.nvm" ] || [ -d "${XDG_CONFIG_HOME:-$HOME/.config}/nvm" ]; then
+        printf "%b\n" "${CGR}✓${CNC} ${BLD}NVM${CNC}"
+        printf "%b\n" "  ${CBL}→${CNC} Instalado en ~/.nvm o ~/.config/nvm"
+        : $((SUCCESS_COUNT++))
+    else
+        printf "%b\n" "${CYE}⚠${CNC} ${BLD}NVM${CNC} - No encontrado (opcional)"
+        : $((WARNING_COUNT++))
+    fi
+
+    # ===== Paquetes Python =====
+    printf "\n%b\n" "${BLD}${CGR}━━━ Paquetes Python ━━━${CNC}\n"
+    # Verificar si pynvim está disponible
+    if python3 -c "import pynvim" 2> /dev/null; then
+        printf "%b\n" "${CGR}✓${CNC} ${BLD}pynvim${CNC} - Módulo Python importable"
+        : $((SUCCESS_COUNT++))
+    else
+        printf "%b\n" "${CYE}⚠${CNC} ${BLD}pynvim${CNC} - No se puede importar"
+        printf "%b\n" "  ${CBL}→${CNC} Puede estar instalado con pacman (python-pynvim)"
+        : $((WARNING_COUNT++))
+    fi
+
+    # ===== RESUMEN =====
+    printf "\n%b\n" "${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}"
+    printf "%b\n" "${BLD}${CGR}  RESUMEN${CNC}"
+    printf "%b\n" "${BLD}${CBL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CNC}\n"
+
+    TOTAL=$((SUCCESS_COUNT + FAIL_COUNT + WARNING_COUNT))
+    printf "%b\n" "${BLD}Total verificado:${CNC} $TOTAL herramientas"
+    printf "%b\n" "${CGR}${BLD}Exitoso:${CNC} $SUCCESS_COUNT"
+    printf "%b\n" "${CYE}${BLD}Advertencias:${CNC} $WARNING_COUNT"
+    printf "%b\n" "${CRE}${BLD}Fallidos:${CNC} $FAIL_COUNT"
+    echo ""
+
+    # Mostrar lista de herramientas fallidas
+    if [ ${#FAILED_TOOLS[@]} -gt 0 ]; then
+        printf "%b\n" "${CRE}${BLD}❌ Herramientas NO instaladas (requeridas):${CNC}"
+        for tool in "${FAILED_TOOLS[@]}"; do
+            printf "%b\n" "  ${CRE}✗${CNC} $tool"
+        done
+        echo ""
+    fi
+
+    # Mostrar lista de herramientas opcionales no instaladas
+    if [ ${#WARNING_TOOLS[@]} -gt 0 ]; then
+        printf "%b\n" "${CYE}${BLD}⚠️  Herramientas opcionales no instaladas:${CNC}"
+        for tool in "${WARNING_TOOLS[@]}"; do
+            printf "%b\n" "  ${CYE}○${CNC} $tool"
+        done
+        echo ""
+    fi
+
+    # Mensaje final y sugerencias
+    if [ $FAIL_COUNT -eq 0 ]; then
+        printf "%b\n" "${CGR}${BLD}✓ Todas las herramientas esenciales están instaladas!${CNC}"
+        echo ""
+        if [ ${#WARNING_TOOLS[@]} -gt 0 ]; then
+            printf "%b\n" "${CYE}Nota:${CNC} Hay ${#WARNING_TOOLS[@]} herramienta(s) opcional(es) no instalada(s)."
+            printf "%b\n" "      Estas no son necesarias pero pueden ser útiles."
+            echo ""
+        fi
+        printf "%b\n" "${BLD}Siguiente paso:${CNC}"
+        printf "%b\n" "  ${CGR}bob install stable && bob use stable${CNC}  ${CBL}# Instalar Neovim${CNC}"
+        echo ""
+        exit 0
+    else
+        printf "%b\n" "${CRE}${BLD}⚠ Algunas herramientas esenciales no están instaladas${CNC}"
+        echo ""
+        printf "%b\n" "${BLD}Soluciones según el tipo de fallo:${CNC}"
+        echo ""
+
+        # Verificar si hay problemas de PATH
+        if printf '%s\n' "${FAILED_TOOLS[@]}" | grep -q "(PATH)"; then
+            printf "%b\n" "  ${BLD}1. Problemas de PATH detectados:${CNC}"
+            printf "%b\n" "     ${CGR}source ~/.zshrc${CNC} ${CBL}(o ~/.bashrc)${CNC}"
+            printf "%b\n" "     Luego ejecuta de nuevo: ${CGR}dotmarchy --verify${CNC}"
+            echo ""
+        fi
+
+        # Sugerencias generales
+        printf "%b\n" "  ${BLD}2. Para instalar herramientas faltantes:${CNC}"
+        printf "%b\n" "     ${CGR}dotmarchy --extras${CNC}"
+        echo ""
+
+        # Sugerencias específicas para cargo
+        if printf '%s\n' "${FAILED_TOOLS[@]}" | grep -q "Cargo\|Stylua\|Bob"; then
+            printf "%b\n" "  ${BLD}3. Para herramientas de Rust:${CNC}"
+            printf "%b\n" "     ${CGR}curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh${CNC}"
+            printf "%b\n" "     ${CGR}source ~/.cargo/env${CNC}"
+            echo ""
+        fi
+
+        # Sugerencias específicas para Bob
+        if printf '%s\n' "${FAILED_TOOLS[@]}" | grep -q "Bob"; then
+            printf "%b\n" "  ${BLD}4. Para instalar Bob (gestor de versiones de Neovim):${CNC}"
+            printf "%b\n" "     ${CGR}cargo install bob-nvim${CNC}"
+            echo ""
+        fi
+
+        # Sugerencias para Language Servers
+        if printf '%s\n' "${FAILED_TOOLS[@]}" | grep -q "LSP\|Language Server"; then
+            printf "%b\n" "  ${BLD}5. Para Language Servers:${CNC}"
+            printf "%b\n" "     La mayoría se instalan con npm o pipx."
+            printf "%b\n" "     Ejecuta: ${CGR}dotmarchy --extras${CNC}"
+            echo ""
+        fi
+
+		return 1
+    fi
+}
+
+#==================================================
+# Configuración del entorno de desarrollo
+#==================================================
+
+#--------------------------------------------------
+# Funciones helper para configuración de entorno
+#--------------------------------------------------
+
+# Agrega una línea al archivo de configuración del shell de forma idempotente
+add_to_shell_config() {
+    local line="$1"
+    local description="${2:-configuration}"
+    local shell_rc=""
+
+    # Detectar shell
+    if [ -f ~/.zshrc ]; then
+        shell_rc=~/.zshrc
+    elif [ -f ~/.bashrc ]; then
+        shell_rc=~/.bashrc
+    else
+        warn "No se encontró archivo de configuración de shell (.zshrc o .bashrc)"
+        return 1
+    fi
+
+    # Verificar si ya existe (búsqueda exacta)
+    if grep -Fxq "$line" "$shell_rc"; then
+        printf "  %b\n" "${CBL}✓${CNC} ${description} ${BLD}(ya configurado en $(basename "$shell_rc"))${CNC}"
+        return 0
+    fi
+
+    # Agregar con comentario
+    {
+        echo ""
+        echo "# Added by dotmarchy - $description"
+        echo "$line"
+    } >> "$shell_rc"
+
+    printf "  %b\n" "${CGR}✓${CNC} Agregado ${BLD}${description}${CNC} a ${CBL}$(basename "$shell_rc")${CNC}"
+    return 0
+}
+
+# Clona un repositorio git de forma segura (idempotente)
+clone_git_repo() {
+    local url="$1"
+    local dest="$2"
+
+    # Expandir ~ en el destino
+    local expanded_dest="${dest/#\~/$HOME}"
+
+    # Extraer nombre del repo para display
+    local repo_name
+    repo_name=$(basename "$url" .git)
+
+    # Verificar si ya existe
+    if [ -d "$expanded_dest" ]; then
+        printf "  %b\n" "${CBL}✓${CNC} ${BLD}${repo_name}${CNC} → ${dest} ${BLD}(ya existe)${CNC}"
+        return 0
+    fi
+
+    printf "  %b\n" "${CYE}→${CNC} Clonando ${BLD}${repo_name}${CNC} → ${dest}..."
+    if git clone "$url" "$expanded_dest" >> "$ERROR_LOG" 2>&1; then
+        printf "    %b\n" "${CGR}✓ Clonado exitosamente${CNC}"
+        return 0
+    else
+        log_error "Error al clonar $url a $expanded_dest"
+        printf "    %b\n" "${CRE}✗ Error al clonar${CNC}"
+        return 1
+    fi
+}
+
+# Descarga un script de forma segura (idempotente)
+download_script() {
+    local url="$1"
+    local dest="$2"
+
+    # Expandir ~ en el destino
+    local expanded_dest="${dest/#\~/$HOME}"
+
+    # Extraer nombre del script
+    local script_name
+    script_name=$(basename "$dest")
+
+    # Crear directorio padre si no existe
+    mkdir -p "$(dirname "$expanded_dest")"
+
+    # Verificar si ya existe
+    if [ -f "$expanded_dest" ]; then
+        printf "  %b\n" "${CBL}✓${CNC} ${BLD}${script_name}${CNC} → ${dest} ${BLD}(ya existe)${CNC}"
+        return 0
+    fi
+
+    printf "  %b\n" "${CYE}→${CNC} Descargando ${BLD}${script_name}${CNC} → ${dest}..."
+    if curl -sL "$url" > "$expanded_dest" 2>> "$ERROR_LOG"; then
+        chmod +x "$expanded_dest"
+        printf "    %b\n" "${CGR}✓ Descargado y hecho ejecutable${CNC}"
+        return 0
+    else
+        log_error "Error al descargar $url a $expanded_dest"
+        printf "    %b\n" "${CRE}✗ Error al descargar${CNC}"
+        return 1
+    fi
+}
+
+# Crea directorios de forma segura
+create_directories() {
+    local dirs=("$@")
+    local dir
+    local created=0
+    local existed=0
+
+    for dir in "${dirs[@]}"; do
+        # Expandir ~ en el path
+        local expanded_dir="${dir/#\~/$HOME}"
+
+        if [ -d "$expanded_dir" ]; then
+            printf "  %b\n" "${CBL}✓${CNC} ${dir} ${BLD}(ya existe)${CNC}"
+            : $((existed++))
+        else
+            if mkdir -p "$expanded_dir" 2>> "$ERROR_LOG"; then
+                printf "  %b\n" "${CGR}✓${CNC} ${BLD}${dir}${CNC} ${CGR}(creado)${CNC}"
+                : $((created++))
+            else
+                log_error "Error al crear directorio: $expanded_dir"
+                printf "  %b\n" "${CRE}✗${CNC} ${dir} ${CRE}(error)${CNC}"
+            fi
+        fi
+    done
+
+    # Resumen
+    if [ $created -gt 0 ] || [ $existed -gt 0 ]; then
+        printf "\n"
+        [ $created -gt 0 ] && info "  → $created directorio(s) creado(s)"
+        [ $existed -gt 0 ] && info "  → $existed directorio(s) ya existía(n)"
+    fi
+}
+
+#--------------------------------------------------
+# Función principal de configuración del entorno
+#--------------------------------------------------
+
+setup_development_environment() {
+    # Solo ejecutar si --setup-env está activado
+    if [ "$SETUP_ENVIRONMENT" -ne 1 ]; then
+        return 0
+    fi
+
+    clear 2> /dev/null || true
+    logo "Configurando entorno de desarrollo"
+    sleep 2
+
+    printf "\n%b\n" "${BLD}${CYE}[--setup-env] Configurando entorno personalizado...${CNC}"
+
+    # Verificar si existe el archivo de configuración
+    if [ ! -f "$SETUP_CONFIG" ]; then
+        warn "Archivo de configuración no encontrado: $SETUP_CONFIG"
+        info "Ejecuta el script sin configuración o crea el archivo de configuración."
+        info "Ejemplo de configuración en: https://github.com/25ASAB015/dotmarchy"
+        sleep 3
+        return 0
+    fi
+
+    printf "%b\n\n" "${BLD}${CBL}Cargando configuración desde $SETUP_CONFIG...${CNC}"
+
+    # Cargar configuración (source del archivo)
+    # shellcheck source=/dev/null
+    source "$SETUP_CONFIG"
+
+    # 1. Crear directorios
+    if [ "${#DIRECTORIES[@]}" -gt 0 ]; then
+        printf "\n%b\n" "${BLD}${CGR}[${CYE}1${CGR}]${CNC} ${BLD}Creando estructura de directorios (${#DIRECTORIES[@]} total)...${CNC}\n"
+        create_directories "${DIRECTORIES[@]}"
+    fi
+
+    # 2. Clonar repositorios git
+    if [ "${#GIT_REPOS[@]}" -gt 0 ]; then
+		printf "\n%b\n" "${BLD}${CGR}[${CYE}2${CGR}]${CNC} ${BLD}Clonando repositorios (${#GIT_REPOS[@]} total)...${CNC}"
+        for entry in "${GIT_REPOS[@]}"; do
+            # Buscar el último : antes de ~/ o / para dividir URL:DEST correctamente
+            # Esto maneja URLs con : (como https://)
+            if [[ $entry =~ ^(.+):([~/].*)$ ]]; then
+                url="${BASH_REMATCH[1]}"
+                dest="${BASH_REMATCH[2]}"
+                if clone_git_repo "$url" "$dest"; then
+                    if [ -d "${dest/#\~/$HOME}/.git" ] || [ -d "${dest/#\~/$HOME}" ]; then
+                        # Revisar si existía antes o se acaba de clonar
+                        :
+                    fi
+                fi
+            else
+                warn "Formato inválido en GIT_REPOS: $entry (esperado URL:DESTINO)"
+            fi
+        done
+        printf "\n"
+    fi
+
+    # 3. Descargar scripts
+    if [ "${#SCRIPTS[@]}" -gt 0 ]; then
+        printf "\n%b\n" "${BLD}${CGR}[${CYE}3${CGR}]${CNC} ${BLD}Descargando scripts (${#SCRIPTS[@]} total)...${CNC}"
+        for entry in "${SCRIPTS[@]}"; do
+            # Buscar el último : antes de ~/ o / para dividir URL:DEST correctamente
+            if [[ $entry =~ ^(.+):([~/].*)$ ]]; then
+                url="${BASH_REMATCH[1]}"
+                dest="${BASH_REMATCH[2]}"
+                download_script "$url" "$dest"
+            else
+                warn "Formato inválido en SCRIPTS: $entry (esperado URL:DESTINO)"
+            fi
+        done
+        printf "\n"
+    fi
+
+    # 4. Configurar shell
+    if [ "${#SHELL_LINES[@]}" -gt 0 ]; then
+        printf "\n%b\n" "${BLD}${CGR}[${CYE}4${CGR}]${CNC} ${BLD}Configurando shell (${#SHELL_LINES[@]} línea(s))...${CNC}"
+        for line in "${SHELL_LINES[@]}"; do
+            add_to_shell_config "$line" "environment setup"
+        done
+        printf "\n"
+    fi
+
+    printf "\n%b\n\n" "${BLD}${CGR}✓ Configuración del entorno completada!${CNC}"
+    info "Nota: Reinicia tu shell o ejecuta 'source ~/.zshrc' (o ~/.bashrc) para aplicar cambios."
+
+    sleep 3
+}
+
+#==================================================
+# Configuración de dotbare (gestión de dotfiles)
+#==================================================
+
+ensure_dotbare_available() {
+	if command -v dotbare >/dev/null 2>&1; then
+		return 0
+	fi
+
+	local dotbare_dir="$HOME/.dotbare"
+	if [ ! -d "$dotbare_dir" ]; then
+		info "dotbare no está instalado. Clonando repositorio oficial..."
+		if ! git clone https://github.com/kazhala/dotbare.git "$dotbare_dir" >>"$ERROR_LOG" 2>&1; then
+			log_error "No se pudo clonar dotbare en $dotbare_dir"
+			return 1
+		fi
+	fi
+
+	local plugin_to_source=""
+	if [ -n "${ZSH_VERSION:-}" ] && [ -f "$dotbare_dir/dotbare.plugin.zsh" ]; then
+		plugin_to_source="$dotbare_dir/dotbare.plugin.zsh"
+	elif [ -f "$dotbare_dir/dotbare.plugin.bash" ]; then
+		plugin_to_source="$dotbare_dir/dotbare.plugin.bash"
+	fi
+
+	if [ -n "$plugin_to_source" ]; then
+		# shellcheck disable=SC1090
+		. "$plugin_to_source"
+	fi
+
+	if command -v dotbare >/dev/null 2>&1; then
+		success "dotbare disponible en el sistema"
+		return 0
+	fi
+
+	warn "dotbare sigue sin estar disponible. Verifica manualmente la instalación."
+	return 1
+}
+
+# Configura dotbare (repo bare de dotfiles) y ajusta remoto si es necesario
+configure_dotbare() {
+    clear 2> /dev/null || true
+    logo "Configurando dotbare"
+    sleep 2
+
+    printf "%b\n" "${BLD}${CBL}Preparando dotbare para gestionar tus dotfiles...${CNC}"
+    sleep 1
+
+    require_cmd dotbare
+
+    # Permitir override por entorno
+    DOTBARE_DIR="${DOTBARE_DIR:-$DOTBARE_DIR_DEFAULT}"
+    DOTBARE_TREE="${DOTBARE_TREE:-$DOTBARE_TREE_DEFAULT}"
+    export DOTBARE_DIR DOTBARE_TREE
+
+    if [ -d "$DOTBARE_DIR" ]; then
+        # Verificar remoto
+        if git --git-dir="$DOTBARE_DIR" rev-parse --is-bare-repository > /dev/null 2>&1; then
+            current=""
+            target_nc=""
+            current_nc=""
+            current=$(git --git-dir="$DOTBARE_DIR" remote get-url origin 2> /dev/null || echo "")
+            target_nc=$(normalize_repo_url "$REPO_URL")
+            current_nc=$(normalize_repo_url "$current")
+            if [ -n "$current" ] && [ "$current_nc" != "$target_nc" ]; then
+                if [ "$FORCE" -eq 1 ]; then
+                    printf "%b\n" "${BLD}${CYE}Remoto distinto detectado (${CBL}$current${CYE}). Reemplazando por ${CBL}$REPO_URL${CYE} por --force${CNC}"
+                    if git --git-dir="$DOTBARE_DIR" remote set-url origin "$REPO_URL" 2>> "$ERROR_LOG"; then
+                        printf "%b\n" "${BLD}${CGR}Remoto actualizado correctamente!${CNC}"
+                    else
+                        log_error "Error al actualizar el remoto de dotbare"
+                        printf "%b\n" "${BLD}${CRE}Error al actualizar el remoto de dotbare${CNC}"
+                    fi
+                else
+                    printf "%b\n" "${BLD}${CYE}Remoto existente distinto (${CBL}$current${CYE}). Se mantiene. Usa --force para cambiarlo.${CNC}"
+                fi
+            else
+                printf "%b\n" "${BLD}${CGR}dotbare ya inicializado y remoto correcto.${CNC}"
+            fi
+        else
+            printf "%b\n" "${BLD}${CRE}${DOTBARE_DIR} existe pero no parece un repo bare.${CNC}"
+            if [ "$FORCE" -eq 1 ]; then
+                printf "%b\n" "${BLD}${CYE}Moviendo directorio conflictivo a respaldo...${CNC}"
+                if mv "$DOTBARE_DIR" "${DOTBARE_DIR}.bak_$(date +%s)" 2>> "$ERROR_LOG"; then
+                    printf "%b\n" "${BLD}${CGR}Respaldo realizado correctamente.${CNC}"
+                else
+                    log_error "Error al respaldar el directorio conflictivo: $DOTBARE_DIR"
+                    printf "%b\n" "${BLD}${CRE}Error al respaldar el directorio conflictivo${CNC}"
+                    exit 1
+                fi
+            else
+                printf "%b\n" "${BLD}${CRE}Directorio en conflicto. Usa --force para respaldar y continuar.${CNC}"
+                exit 1
+            fi
+        fi
+    fi
+
+    if [ ! -d "$DOTBARE_DIR" ]; then
+        printf "%b\n" "${BLD}${CBL}Inicializando dotbare con tu repositorio...${CNC}"
+
+        # Determinar URL a usar (SSH o HTTPS)
+        FINAL_REPO_URL="$REPO_URL"
+
+        # Si la URL es SSH, verificar autenticación
+        if [[ $REPO_URL =~ ^git@ ]]; then
+            if ! check_ssh_auth; then
+                # No hay autenticación SSH, convertir a HTTPS
+                FINAL_REPO_URL=$(ssh_to_https "$REPO_URL")
+                printf "%b\n" "${BLD}${CYE}SSH no disponible. Usando HTTPS: ${CBL}${FINAL_REPO_URL}${CNC}"
+            else
+                printf "%b\n" "${BLD}${CGR}Autenticación SSH detectada. Usando SSH.${CNC}"
+            fi
+        fi
+
+        # Intentar inicializar con la URL determinada
+        if dotbare finit -u "$FINAL_REPO_URL" 2>> "$ERROR_LOG"; then
+            printf "%b\n" "${BLD}${CGR}dotbare inicializado correctamente!${CNC}"
+        else
+            # Si falló y era SSH, intentar con HTTPS como fallback
+            if [[ $REPO_URL =~ ^git@ ]] && [ "$FINAL_REPO_URL" = "$REPO_URL" ]; then
+                HTTPS_URL=$(ssh_to_https "$REPO_URL")
+                printf "%b\n" "${BLD}${CYE}Falló con SSH. Intentando con HTTPS: ${CBL}${HTTPS_URL}${CNC}"
+                if dotbare finit -u "$HTTPS_URL" 2>> "$ERROR_LOG"; then
+                    FINAL_REPO_URL="$HTTPS_URL"
+                    printf "%b\n" "${BLD}${CGR}dotbare inicializado correctamente con HTTPS!${CNC}"
+                else
+                    log_error "Error al inicializar dotbare (intentó SSH y HTTPS)"
+                    printf "%b\n" "${BLD}${CRE}Error al inicializar dotbare${CNC}"
+                    printf "%b\n" "${BLD}${CYE}Verifica que el repositorio existe y es accesible.${CNC}"
+                    return 1
+                fi
+            else
+                log_error "Error al inicializar dotbare"
+                printf "%b\n" "${BLD}${CRE}Error al inicializar dotbare${CNC}"
+                printf "%b\n" "${BLD}${CYE}Verifica que el repositorio existe y es accesible.${CNC}"
+                return 1
+            fi
+        fi
+    fi
+
+    # Usar FINAL_REPO_URL si está definida, sino REPO_URL
+    DISPLAY_URL="${FINAL_REPO_URL:-$REPO_URL}"
+    printf "%b\n" "${BLD}${CGR}dotbare listo! (${CBL}${DOTBARE_DIR}${CGR} ↔ ${CBL}${DISPLAY_URL}${CGR})${CNC}"
+    sleep 2
+}
+
+#==================================================
+# Ejecución principal (orden del flujo)
+#==================================================
+
+main() {
+    # Procesar flags y argumento posicional (REPO_URL)
+    parse_args "$@" # Analiza los argumentos de línea de comandos y flags (como --force, --dry-run, etc.)
+    initial_checks # Realiza comprobaciones iniciales: no root, en $HOME, dependencias básicas, etc.
+
+    # Si modo verificación está activado, ejecutar verificación y salir
+    if [ "$VERIFY_MODE" -eq 1 ]; then
+        verify_installation
+        exit $?
+    fi
+
+    welcome # Muestra mensaje de bienvenida e información al usuario
+
+    if ensure_dotbare_available; then
+        configure_dotbare          # Inicializa y configura dotbare con el repositorio de dotfiles indicado
+    else
+        log_error "dotbare no se pudo preparar automáticamente; abortando para evitar instalación inconsistente."
+        exit 1
+    fi
+
+    add_chaotic_repo          # Añade el repositorio Chaotic-AUR si es necesario (para instalar paquetes extra)
+    install_dependencies      # Instala los paquetes requeridos desde los repositorios oficiales
+    install_chaotic_dependencies # Instala dependencias específicas desde Chaotic-AUR
+    install_aur_dependencies  # Instala paquetes desde AUR usando un helper (ej: paru)
+    install_npm_dependencies  # Instala paquetes npm globales (solo con --extras)
+    install_cargo_packages    # Instala paquetes de Rust vía cargo (solo con --extras)
+    install_python_packages   # Instala paquetes Python vía pip/pipx con soporte PEP 668 (solo con --extras)
+    install_ruby_packages     # Instala gemas de Ruby (solo con --extras)
+    install_github_tools      # Instala herramientas desde GitHub releases (solo con --extras)
+
+    setup_development_environment # Configura entorno de desarrollo (solo con --setup-env)
+    if [ "$INSTALL_EXTRAS" -eq 1 ] || [ "$SETUP_ENVIRONMENT" -eq 1 ]; then
+        configure_path         # Configura PATH para gestores extra solo cuando se instalan
+    else
+        debug "Saltando configuración de PATH (solo paquetes core instalados)"
+    fi
+    farewell                   # Muestra resumen final y despedida
+}
+
+# Ejecuta el script
+main "$@"
