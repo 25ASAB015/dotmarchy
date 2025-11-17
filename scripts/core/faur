@@ -105,12 +105,45 @@ function main() {
         for pkg in $missing_aur; do
             printf "%b\n" "${BLD}${CBL}Processing: ${pkg}${CNC}"
             
+            # Try paru first (normal method)
             if paru -S --skipreview --noconfirm "$pkg" >>"$ERROR_LOG" 2>&1; then
                 printf "%b\n" "  ${BLD}${CGR}Se ha instalado correctamente!${CNC}"
             else
-                log_error "Error al instalar el paquete AUR: $pkg"
-                aur_failed="$aur_failed $pkg"
-                printf "%b\n" "  ${BLD}${CRE}Error al instalar${CNC}"
+                # Fallback: Install directly from GitHub AUR mirror when AUR is down
+                warn "AUR puede estar caído. Intentando instalación desde GitHub..."
+                printf "%b\n" "  ${BLD}${CYE}Clonando desde GitHub AUR mirror...${CNC}"
+                
+                local temp_dir
+                temp_dir=$(mktemp -d)
+                local install_success=0
+                local original_dir
+                original_dir="$PWD"
+                
+                # Clone from GitHub AUR mirror (each package has its own branch)
+                # The repository is cloned to a directory called "aur"
+                if cd "$temp_dir" && git clone --branch "$pkg" --single-branch https://github.com/archlinux/aur.git >>"$ERROR_LOG" 2>&1; then
+                    cd aur || exit 1
+                    # Build and install with makepkg
+                    if makepkg -si --noconfirm >>"$ERROR_LOG" 2>&1; then
+                        printf "%b\n" "  ${BLD}${CGR}Instalado correctamente desde GitHub!${CNC}"
+                        install_success=1
+                    else
+                        log_error "Error al compilar el paquete desde GitHub: $pkg"
+                    fi
+                    cd "$original_dir" || true
+                else
+                    log_error "Error al clonar el paquete desde GitHub: $pkg"
+                    cd "$original_dir" || true
+                fi
+                
+                # Cleanup temp directory
+                rm -rf "$temp_dir" 2>/dev/null || true
+                
+                if [ $install_success -eq 0 ]; then
+                    log_error "Error al instalar el paquete AUR: $pkg (intentó paru y GitHub)"
+                    aur_failed="$aur_failed $pkg"
+                    printf "%b\n" "  ${BLD}${CRE}Error al instalar${CNC}"
+                fi
             fi
             sleep 0.5
         done
