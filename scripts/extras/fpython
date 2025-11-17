@@ -37,10 +37,15 @@ function main() {
     # Ensure pipx
     print_info "Verificando pipx..."
     command -v pipx >/dev/null 2>&1 || {
-        [ $use_pipx_only -eq 1 ] && {
-            log_error "pipx no instalado. Instala python-pipx con pacman"
-            return 1
-        } || python3 -m pip install --user pipx 2>&1 | grep -v "already satisfied" || true
+        if [ $use_pipx_only -eq 1 ]; then
+            print_info "pipx no instalado. Instalando python-pipx con pacman..."
+            if ! sudo pacman -S --noconfirm python-pipx 2>&1 | tee -a "$ERROR_LOG" >/dev/null; then
+                log_error "Error al instalar python-pipx"
+                return 1
+            fi
+        else
+            python3 -m pip install --user pipx 2>&1 | grep -v "already satisfied" || true
+        fi
     }
     
     pipx ensurepath --force 2>&1 | grep -v "already in PATH" || true
