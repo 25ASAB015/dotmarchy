@@ -26,6 +26,9 @@ source "${mydir}/helper/utils.sh"         # Utilities
 source "${mydir}/helper/checks.sh"        # System checks
 source "${mydir}/helper/prompts.sh"       # User interaction
 
+# Always start with a clean error log for fresh install diagnostics
+: > "${ERROR_LOG}"
+
 # Setup error trap
 trap on_error ERR
 
@@ -64,7 +67,9 @@ main() {
     "${mydir}/scripts/core/fchaotic"
     
     # Install dependencies from official repos
-    "${mydir}/scripts/core/fdeps"
+    if ! "${mydir}/scripts/core/fdeps"; then
+        warn "Algunos paquetes fallaron al instalarse, pero continuando..."
+    fi
     
     # Install dependencies from Chaotic-AUR
     "${mydir}/scripts/core/fchaotic-deps"
@@ -76,12 +81,9 @@ main() {
     if [ "${INSTALL_EXTRAS:-0}" -eq 1 ]; then
         info "Iniciando instalación de extras..."
         
-        "${mydir}/scripts/extras/fnpm"      # npm packages
-        "${mydir}/scripts/extras/fcargo"    # Rust/Cargo packages
-        "${mydir}/scripts/extras/fpython"   # Python packages (pip/pipx)
-        "${mydir}/scripts/extras/fruby"     # Ruby gems
-        "${mydir}/scripts/extras/fgithub"   # GitHub releases
-        "${mydir}/scripts/extras/fpath"     # Configure PATH
+    #    "${mydir}/scripts/extras/fmise"     # MISE packages (testing)
+       "${mydir}/scripts/extras/fmise"     # MISE package manager
+       "${mydir}/scripts/extras/fmise-extras"  # Complementary tools     # Configure PATH
     else
         debug "Saltando extras (--extras no activado)"
     fi

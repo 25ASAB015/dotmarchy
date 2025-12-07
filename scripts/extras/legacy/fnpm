@@ -9,6 +9,7 @@
 # @params
 # Globals:
 #   ${INSTALL_EXTRAS}: Must be 1 to run
+# INSTALL_EXTRAS=1 ./fnpm
 #   ${SETUP_CONFIG}: Path to configuration file
 #   ${DEFAULT_EXTRA_NPM_PACKAGES}: Default packages
 #   ${ERROR_LOG}: Error log path
@@ -64,10 +65,30 @@ function main() {
     printf "%b\n\n" "${BLD}${CBL}Verificando paquetes npm...${CNC}"
     sleep 2
     
+    # Function to extract base package name (remove @latest, versions, etc.)
+    extract_package_name() {
+        local pkg="$1"
+        # Remove @latest, @beta, @alpha, etc. but preserve scoped packages (@scope/pkg)
+        # Pattern: remove @version or @tag at the end, but keep @scope at the start
+        if [[ "$pkg" =~ ^@[^/]+/ ]]; then
+            # Scoped package: @scope/pkg@version -> @scope/pkg
+            echo "${pkg%%@*}"
+        else
+            # Regular package: pkg@version -> pkg
+            echo "${pkg%%@*}"
+        fi
+    }
+    
     # Detect missing packages
     local missing_npm=""
     for pkg in $npm_packages; do
-        if npm list -g --depth=0 2>/dev/null | grep -q "$pkg@"; then
+        # Extract base package name for verification
+        local pkg_name
+        pkg_name=$(extract_package_name "$pkg")
+        
+        # Use npm list -g to check if package is installed (more reliable)
+        # npm list returns exit code 0 if installed, 1 if not
+        if npm list -g "$pkg_name" --depth=0 >/dev/null 2>&1; then
             printf "%b\n" "${BLD}${CGR}$pkg ${CBL}ya está instalado${CNC}"
         else
             missing_npm="$missing_npm $pkg"
