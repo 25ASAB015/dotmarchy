@@ -39,8 +39,16 @@
 #   ${SCRIPTS}: Array of scripts to download
 #   ${SHELL_LINES}: Array of lines to add to shell config
 
-# Version
-export DOTMARCHY_VERSION="v2.0.0"
+# Idempotent load guard (not exported to avoid inheritance)
+DOTMARCHY_VARIABLES_LOADED=${DOTMARCHY_VARIABLES_LOADED:-0}
+if [ "${DOTMARCHY_VARIABLES_LOADED}" -eq 1 ]; then
+    return 0
+fi
+
+# Version (only set if not already defined)
+if [ -z "${DOTMARCHY_VERSION+x}" ]; then
+    export DOTMARCHY_VERSION="v2.0.0"
+fi
 
 # Dotbare configuration (from dotbare pattern)
 export DOTBARE_DIR="${DOTBARE_DIR:-$HOME/.cfg}"
@@ -95,4 +103,7 @@ declare -a SHELL_LINES=()
 export INSTALL_START_TIME=$(date +%s)
 export PACKAGES_INSTALLED=0
 export PACKAGES_SKIPPED=0
+
+# Mark as loaded
+DOTMARCHY_VARIABLES_LOADED=1
 

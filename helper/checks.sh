@@ -24,20 +24,34 @@
 
 set -Eeuo pipefail
 
+# Idempotent guard (not exported)
+DOTMARCHY_CHECKS_LOADED=${DOTMARCHY_CHECKS_LOADED:-0}
+if [ "${DOTMARCHY_CHECKS_LOADED}" -eq 1 ]; then
+    return 0
+fi
+
 #######################################
 # Constants and Configuration
 #######################################
-readonly HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "${HELPER_DIR+x}" ]; then
+    readonly HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 
 # Network check configuration
 readonly PING_HOST="8.8.8.8"
 readonly PING_COUNT=1
 readonly PING_TIMEOUT=1
 
-# Exit codes
-readonly EXIT_SUCCESS=0
-readonly EXIT_FAILURE=1
-readonly EXIT_INVALID_ENVIRONMENT=4
+# Exit codes (define only if not preset)
+if [ -z "${EXIT_SUCCESS+x}" ]; then
+    readonly EXIT_SUCCESS=0
+fi
+if [ -z "${EXIT_FAILURE+x}" ]; then
+    readonly EXIT_FAILURE=1
+fi
+if [ -z "${EXIT_INVALID_ENVIRONMENT+x}" ]; then
+    readonly EXIT_INVALID_ENVIRONMENT=4
+fi
 
 #######################################
 # Load Dependencies
@@ -249,6 +263,9 @@ initial_checks() {
     debug "All initial checks passed"
     return "$EXIT_SUCCESS"
 }
+
+# Mark as loaded
+DOTMARCHY_CHECKS_LOADED=1
 
 #######################################
 # MODULARITY NOTE:
