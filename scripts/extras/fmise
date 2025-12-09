@@ -407,6 +407,13 @@ function extract_binary_name() {
             tree-sitter-cli) bin_name="tree-sitter" ;;
         esac
     fi
+
+    # Map npm scoped packages whose binary differs from package name
+    if [[ "$package" == npm:* ]]; then
+        case "$bin_name" in
+            qwen-code) bin_name="qwen" ;;  # @qwen-code/qwen-code -> qwen
+        esac
+    fi
     
     # Map pipx package names (some have different binary names)
     if [[ "$package" == pipx:* ]]; then

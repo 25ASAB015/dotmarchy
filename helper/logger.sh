@@ -1,127 +1,521 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
+# shfmt: -ln=bash
 #
 # logger.sh - Logging functions and utilities for dotmarchy
 #
-# This helper provides standardized logging functions for all output levels,
-# timing utilities, and error handling. It depends on colors.sh for color
-# definitions and set_variable.sh for configuration variables.
+# Provides standardized logging functions for all output levels with consistent
+# formatting and behavior. This is a core helper module that implements the
+# logging interface used throughout the dotmarchy codebase.
 #
-# @params
-# Globals:
-#   ${VERBOSE}: Controls debug output (from set_variable.sh)
-#   ${ERROR_LOG}: Path to error log file (from set_variable.sh)
-#   ${CRE}, ${CYE}, ${CGR}, ${CBL}, ${BLD}, ${CNC}: Color variables (from colors.sh)
+# All logging functions output user-facing messages in Spanish while maintaining
+# English function names and code structure.
 #
-# Functions:
-#   log(): Simple output with no formatting
-#   info(): Blue informational message
-#   print_info(): Alias for info() (compatibility)
-#   warn(): Bold yellow warning message
-#   debug(): Conditional debug message (only if VERBOSE=1)
-#   log_error(): Log error to file and display to stderr
-#   on_error(): Error trap handler
+# Usage:
+#   source "${SCRIPT_DIR}/helper/logger.sh"
+#   info "Proceso iniciado"
+#   warn "Advertencia importante"
+#   log_error "Error crítico"
+#   debug "Información de depuración"
+#
+# Log Levels:
+#   log()       - Plain output, no formatting
+#   info()      - Informational messages (blue)
+#   warn()      - Warnings that don't stop execution (yellow)
+#   log_error() - Errors logged to file and stderr (red)
+#   debug()     - Verbose output only when VERBOSE=1 (bold)
+#
+# Dependencies:
+#   - colors.sh (for color variables)
+#   - set_variable.sh (for VERBOSE and ERROR_LOG)
+#
+# @author: dotmarchy
+# @version: 2.0.0
 
 set -Eeuo pipefail
 
-# Source colors if not already loaded
+#######################################
+# Constants and Configuration
+#######################################
+readonly HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Default error log location (can be overridden by set_variable.sh)
+readonly DEFAULT_ERROR_LOG="/tmp/dotmarchy-error.log"
+
+# Log level constants
+readonly LOG_LEVEL_DEBUG=0
+readonly LOG_LEVEL_INFO=1
+readonly LOG_LEVEL_WARN=2
+readonly LOG_LEVEL_ERROR=3
+
+#######################################
+# Load Dependencies
+#######################################
+
+# Load colors if not already loaded
 if [ -z "${CGR:-}" ]; then
-    # Determine helper directory
-    HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    source "${HELPER_DIR}/colors.sh"
+    source "${HELPER_DIR}/colors.sh" || {
+        echo "ERROR: Cannot load colors.sh" >&2
+        exit 1
+    }
 fi
 
 #######################################
-# Simple output with no formatting
+# Global Variables Documentation
+#
+# Configuration Variables (from set_variable.sh):
+#   VERBOSE (integer): Controls debug output (0=off, 1=on)
+#     Default: 0
+#     Used by: debug()
+#
+#   ERROR_LOG (string): Path to error log file
+#     Default: /tmp/dotmarchy-error.log
+#     Used by: log_error()
+#
+# Color Variables (from colors.sh):
+#   CRE, CYE, CGR, CBL, BLD, CNC
+#
+# DO NOT reimplement color definitions.
+# DO NOT reimplement configuration loading.
+#######################################
+
+#######################################
+# Get current timestamp in ISO 8601 format
+#
+# Returns standardized timestamp for log entries.
+# Uses UTC to avoid timezone ambiguity in logs.
+#
+# Outputs:
+#   STDOUT: Timestamp in format "YYYY-MM-DD HH:MM:SS"
+#
+# Example:
+#   timestamp=$(get_timestamp)
+#   echo "[$timestamp] Event occurred"
+#######################################
+get_timestamp() {
+    date +"%Y-%m-%d %H:%M:%S"
+}
+
+#######################################
+# Get error log file path
+#
+# Returns the configured error log path or default if not set.
+# Creates parent directory if it doesn't exist.
+#
+# Outputs:
+#   STDOUT: Path to error log file
+#
+# Side Effects:
+#   - May create parent directories
+#######################################
+get_error_log_path() {
+    local log_path="${ERROR_LOG:-$DEFAULT_ERROR_LOG}"
+    local log_dir
+    
+    log_dir="$(dirname "$log_path")"
+    
+    # Create directory if it doesn't exist
+    [ ! -d "$log_dir" ] && mkdir -p "$log_dir" 2>/dev/null || true
+    
+    echo "$log_path"
+}
+
+#######################################
+# Check if verbose mode is enabled
+#
+# Returns:
+#   0: Verbose mode enabled (VERBOSE=1)
+#   1: Verbose mode disabled (VERBOSE=0 or unset)
+#######################################
+is_verbose_enabled() {
+    [ "${VERBOSE:-0}" -eq 1 ]
+}
+
+#######################################
+# Plain output with no formatting
+#
+# Outputs message exactly as provided without any color or formatting.
+# Use for raw output when color would interfere (e.g., piping to files).
+#
 # Arguments:
 #   $*: Message to output
+#
 # Outputs:
-#   Message to stdout
+#   STDOUT: Plain text message
+#
+# Example:
+#   log "Plain text output"
+#   log "Multiple" "words" "combined"
 #######################################
 log() {
     printf "%s\n" "$*"
 }
 
 #######################################
-# Informational message in blue
+# Informational message
+#
+# Displays informational message in blue color. Use for normal
+# operational messages that inform the user of progress.
+#
 # Arguments:
-#   $*: Message to output
+#   $*: Informational message
+#
 # Outputs:
-#   Blue colored message to stdout
+#   STDOUT: Blue colored message
+#
+# Example:
+#   info "Iniciando instalación de paquetes..."
+#   info "Proceso completado exitosamente"
 #######################################
 info() {
     printf "%b%s%b\n" "${CBL}" "$*" "${CNC}"
 }
 
 #######################################
-# Alias for info() for compatibility
+# Informational message (compatibility alias)
+#
+# Alias for info() function to maintain compatibility with
+# older scripts that use print_info().
+#
 # Arguments:
-#   $*: Message to output
+#   $@: Informational message (passed to info)
+#
 # Outputs:
-#   Blue colored message to stdout
+#   STDOUT: Blue colored message
+#
+# Example:
+#   print_info "Mensaje informativo"
 #######################################
 print_info() {
     info "$@"
 }
 
 #######################################
-# Warning message in bold yellow
+# Warning message
+#
+# Displays warning message in bold yellow. Use for non-critical issues
+# that the user should be aware of but don't stop execution.
+#
 # Arguments:
 #   $*: Warning message
+#
 # Outputs:
-#   Bold yellow message to stdout
+#   STDOUT: Bold yellow message
+#
+# Example:
+#   warn "Paquete opcional no encontrado, continuando..."
+#   warn "Configuración no óptima detectada"
 #######################################
 warn() {
-    printf "%b%s%b\n" "${CYE}${BLD}" "$*" "${CNC}"
+    printf "%b⚠ %s%b\n" "${BLD}${CYE}" "$*" "${CNC}"
 }
 
 #######################################
-# Debug message (only output if VERBOSE=1)
+# Success message
+#
+# Displays success message in bold green. Use to confirm successful
+# completion of operations.
+#
+# Arguments:
+#   $*: Success message
+#
+# Outputs:
+#   STDOUT: Bold green message
+#
+# Example:
+#   success "Instalación completada exitosamente"
+#   success "Configuración aplicada correctamente"
+#######################################
+success() {
+    printf "%b✓ %s%b\n" "${BLD}${CGR}" "$*" "${CNC}"
+}
+
+#######################################
+# Debug message
+#
+# Outputs debug message only when VERBOSE=1. Use for detailed
+# diagnostic information during development and troubleshooting.
+#
+# The message is prefixed with "…" to distinguish it from regular output.
+#
 # Arguments:
 #   $*: Debug message
+#
 # Outputs:
-#   Bold message if VERBOSE=1, nothing otherwise
+#   STDOUT: Bold message (only if VERBOSE=1)
+#   Nothing if VERBOSE=0
+#
+# Example:
+#   debug "Variable value: $var"
+#   debug "Entering function: process_data"
 #######################################
 debug() {
-    [ "${VERBOSE:-0}" -eq 1 ] && printf "%b… %s%b\n" "${BLD}" "$*" "${CNC}" || true
+    if is_verbose_enabled; then
+        printf "%b… %s%b\n" "${BLD}" "$*" "${CNC}"
+    fi
 }
 
 #######################################
-# Log error message to file and display to stderr
+# Write error to log file
+#
+# Internal function to append error message to the error log file
+# with timestamp. Creates log file if it doesn't exist.
+#
+# Arguments:
+#   $1: Error message to log
+#
+# Side Effects:
+#   - Appends to ERROR_LOG file
+#   - Creates log file if missing
+#######################################
+write_to_error_log() {
+    local message="$1"
+    local timestamp
+    local log_path
+    
+    timestamp=$(get_timestamp)
+    log_path=$(get_error_log_path)
+    
+    printf "[%s] ERROR: %s\n" "$timestamp" "$message" >> "$log_path" 2>/dev/null || {
+        # If we can't write to configured log, try stderr
+        printf "[%s] ERROR (log write failed): %s\n" "$timestamp" "$message" >&2
+    }
+}
+
+#######################################
+# Display error to user
+#
+# Internal function to show formatted error message to stderr.
+#
+# Arguments:
+#   $1: Error message to display
+#
+# Outputs:
+#   STDERR: Red colored error message
+#######################################
+display_error_to_user() {
+    local message="$1"
+    printf "%b✗ ERROR:%b %s\n" "${BLD}${CRE}" "${CNC}" "$message" >&2
+}
+
+#######################################
+# Log error message
+#
+# Logs error to both file (with timestamp) and displays to user (stderr).
+# This is the primary error reporting function that should be used for
+# all error conditions.
+#
+# Error messages are logged to ERROR_LOG for debugging and displayed
+# to stderr in bold red for immediate user visibility.
+#
 # Arguments:
 #   $1: Error message
+#
 # Outputs:
-#   Timestamped error to ERROR_LOG file
-#   Colored error to stderr
+#   STDERR: Colored error message
+#
+# Side Effects:
+#   - Appends to ERROR_LOG file
+#
+# Example:
+#   log_error "No se pudo conectar al servidor"
+#   log_error "Archivo de configuración no encontrado: $config"
 #######################################
 log_error() {
-    local error_msg=$1
-    local timestamp
-    timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+    local error_msg="$1"
+    
+    # Validate input
+    [ -z "$error_msg" ] && {
+        display_error_to_user "log_error called with empty message"
+        return 1
+    }
     
     # Log to file
-    printf "%s" "[${timestamp}] ERROR: ${error_msg}\n" >> "${ERROR_LOG:-/tmp/dotmarchy-error.log}"
+    write_to_error_log "$error_msg"
     
-    # Display to stderr
-    printf "%s%sERROR:%s %s\n" "${CRE}" "${BLD}" "${CNC}" "${error_msg}" >&2
+    # Display to user
+    display_error_to_user "$error_msg"
 }
 
 #######################################
-# Error trap handler (call on ERR signal)
+# Get error context information
+#
+# Extracts context about where an error occurred for detailed logging.
+# Used internally by on_error() trap handler.
+#
+# Arguments:
+#   $1: Exit code
+#   $2: Line number
+#   $3: Function name (optional)
+#
+# Outputs:
+#   STDOUT: Formatted error context string
+#######################################
+get_error_context() {
+    local exit_code="$1"
+    local line_number="${2:-UNKNOWN}"
+    local function_name="${3:-main}"
+    
+    printf "Function: %s | Line: %s | Exit code: %s" \
+        "$function_name" "$line_number" "$exit_code"
+}
+
+#######################################
+# Error trap handler
+#
+# Automatic error handler triggered by ERR signal (set -E).
+# Logs detailed error information and exits with the original error code.
+#
+# This function should be registered with: trap on_error ERR
+#
 # Globals:
 #   BASH_LINENO: Array of line numbers (bash built-in)
+#   BASH_SOURCE: Array of source files (bash built-in)
+#   FUNCNAME: Array of function names (bash built-in)
+#
 # Outputs:
-#   Error message with line number
-# Returns:
-#   Exits with the error code
+#   STDERR: Error message via log_error()
+#
+# Side Effects:
+#   - Logs error to ERROR_LOG
+#   - Exits with original error code
+#
+# Example:
+#   trap on_error ERR
+#   # Any command that fails will trigger on_error
 #######################################
 on_error() {
     local exit_code=$?
-    local line=${BASH_LINENO[0]:-UNKNOWN}
-    log_error "Fallo en la línea ${line}. Código: ${exit_code}"
+    local line_number="${BASH_LINENO[0]:-UNKNOWN}"
+    local source_file="${BASH_SOURCE[1]:-UNKNOWN}"
+    local function_name="${FUNCNAME[1]:-main}"
+    
+    # Build detailed error message
+    local error_context
+    error_context=$(get_error_context "$exit_code" "$line_number" "$function_name")
+    
+    # Log error with context
+    log_error "Fallo en la ejecución"
+    
+    # Write detailed context to log file only (too technical for user)
+    write_to_error_log "Context: $error_context"
+    write_to_error_log "Source: $source_file"
+    
+    # Display user-friendly location info
+    printf "%b%sUbicación:%b Línea %s en %s\n" \
+        "${BLD}" "${CYE}" "${CNC}" \
+        "$line_number" "$(basename "$source_file")" >&2
+    
     exit "$exit_code"
 }
 
-# Note: Scripts that want to use on_error should set up the trap themselves:
-# trap on_error ERR
+#######################################
+# Log function entry (for debugging)
+#
+# Logs when a function is entered. Only outputs if VERBOSE=1.
+# Useful for tracing execution flow during development.
+#
+# Arguments:
+#   $1: Function name
+#   $@: Optional function arguments to log
+#
+# Example:
+#   my_function() {
+#       log_function_entry "${FUNCNAME[0]}" "$@"
+#       # function body
+#   }
+#######################################
+log_function_entry() {
+    [ $# -lt 1 ] && return 1
+    
+    local func_name="$1"
+    shift
+    
+    if is_verbose_enabled; then
+        if [ $# -gt 0 ]; then
+            debug "→ Entering: ${func_name}($*)"
+        else
+            debug "→ Entering: ${func_name}()"
+        fi
+    fi
+}
 
+#######################################
+# Log function exit (for debugging)
+#
+# Logs when a function exits. Only outputs if VERBOSE=1.
+# Useful for tracing execution flow during development.
+#
+# Arguments:
+#   $1: Function name
+#   $2: (optional) Return value
+#
+# Example:
+#   my_function() {
+#       local result="value"
+#       log_function_exit "${FUNCNAME[0]}" "$result"
+#       return 0
+#   }
+#######################################
+log_function_exit() {
+    [ $# -lt 1 ] && return 1
+    
+    local func_name="$1"
+    local return_value="${2:-}"
+    
+    if is_verbose_enabled; then
+        if [ -n "$return_value" ]; then
+            debug "← Exiting: ${func_name} (returned: $return_value)"
+        else
+            debug "← Exiting: ${func_name}"
+        fi
+    fi
+}
+
+#######################################
+# SCRIPT-SPECIFIC UTILITIES
+#
+# The following functions are specific to logging operations
+# and complement the core logging API above.
+#######################################
+
+#######################################
+# Log with custom prefix
+#
+# Allows logging with a custom prefix for specialized contexts.
+#
+# Arguments:
+#   $1: Prefix string
+#   $2: Message
+#
+# Outputs:
+#   STDOUT: Formatted message with prefix
+#
+# Example:
+#   log_with_prefix "INSTALL" "Installing package: git"
+#   log_with_prefix "CONFIG" "Loading configuration file"
+#######################################
+log_with_prefix() {
+    local prefix="$1"
+    local message="$2"
+    
+    printf "[%b%s%b] %s\n" "${BLD}" "$prefix" "${CNC}" "$message"
+}
+
+#######################################
+# MODULARITY NOTE:
+#
+# This module provides the logging interface for dotmarchy.
+# It should NOT:
+#   - Define colors (that's colors.sh)
+#   - Load configuration (that's set_variable.sh)
+#   - Perform system operations (that's utils.sh or checks.sh)
+#
+# It ONLY provides logging functions with consistent formatting.
+#
+# Dependency Chain:
+#   colors.sh → logger.sh → other scripts
+#
+# If you need to log something anywhere in the codebase,
+# use these functions rather than raw printf/echo.
+#######################################
