@@ -18,10 +18,7 @@
 #   info(): Blue informational message
 #   print_info(): Alias for info() (compatibility)
 #   warn(): Bold yellow warning message
-#   step(): Blue bullet point for step indication
 #   debug(): Conditional debug message (only if VERBOSE=1)
-#   now_ms(): Get current time in milliseconds
-#   fmt_ms(): Format milliseconds to human-readable duration
 #   log_error(): Log error to file and display to stderr
 #   on_error(): Error trap handler
 
@@ -79,17 +76,6 @@ warn() {
 }
 
 #######################################
-# Step indicator with blue bullet
-# Arguments:
-#   $*: Step description
-# Outputs:
-#   Bold blue » followed by description
-#######################################
-step() {
-    printf "%b»%b %s\n" "${BLD}${CBL}" "${CNC}" "$*"
-}
-
-#######################################
 # Debug message (only output if VERBOSE=1)
 # Arguments:
 #   $*: Debug message
@@ -98,33 +84,6 @@ step() {
 #######################################
 debug() {
     [ "${VERBOSE:-0}" -eq 1 ] && printf "%b… %s%b\n" "${BLD}" "$*" "${CNC}" || true
-}
-
-#######################################
-# Get current time in milliseconds
-# Outputs:
-#   Current timestamp in milliseconds
-#######################################
-now_ms() {
-    date +%s%3N 2>/dev/null || echo $(($(date +%s) * 1000))
-}
-
-#######################################
-# Format milliseconds to human-readable duration
-# Arguments:
-#   $1: Duration in milliseconds
-# Outputs:
-#   Formatted duration (e.g., "1.5s" or "250ms")
-#######################################
-fmt_ms() {
-    local ms=${1:-0}
-    if [ "$ms" -ge 1000 ]; then
-        local s=$((ms / 1000))
-        local t=$(((ms % 1000) / 100))
-        printf "%d.%ds" "$s" "$t"
-    else
-        printf "%dms" "$ms"
-    fi
 }
 
 #######################################

@@ -92,7 +92,10 @@ function is_installed_via_mise() {
 
 function is_installed_via_npm() {
     local npm_pkg_name="$1"
-    npm_pkg_name="${npm_pkg_name%@*}"
+    # Preserve scoped names; only strip a version suffix if there's a second "@"
+    if [[ "${npm_pkg_name#*@}" == *@* ]]; then
+        npm_pkg_name="${npm_pkg_name%@*}"
+    fi
     local escaped_name=$(printf '%s\n' "$npm_pkg_name" | sed 's/[[\.*^$()+?{|]/\\&/g')
     npm list -g --depth=0 2>/dev/null | grep -qE "(├──|└──) ${escaped_name}@"
 }
@@ -375,8 +378,8 @@ function extract_binary_name() {
         bin_name="${package#*:}"
     fi
     
-    # Remove version suffix (@latest, @1.0.0, etc.)
-    if [[ "$bin_name" == *"@"* ]]; then
+    # Remove version suffix (@latest, @1.0.0, etc.) but keep scoped package names
+    if [[ "${bin_name#*@}" == *@* ]]; then
         bin_name="${bin_name%@*}"
     fi
     
@@ -528,6 +531,8 @@ function main() {
     local force_mode=false
 
     # Parse command line arguments
+    echo "[DEBUG] fmise args: $*" >&2
+    sleep 1
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -h|--help)
@@ -552,10 +557,14 @@ function main() {
 
     # Configuration file path
     SETUP_CONFIG="${SETUP_CONFIG:-${HOME}/.config/dotmarchy/setup.conf}"
+    echo "[DEBUG] Using SETUP_CONFIG=${SETUP_CONFIG}" >&2
+    sleep 1
 
     local start_time=$(date +%s)
 
     info "fmise: Iniciando verificación de paquetes MISE..."
+    echo "[DEBUG] INSTALL_EXTRAS=${INSTALL_EXTRAS:-unset} force_mode=${force_mode}" >&2
+    sleep 1
 
     # Only run if --extras is set (when called from dotmarchy) or --force is used
     if [ "${INSTALL_EXTRAS:-0}" -ne 1 ] && [ "$force_mode" != "true" ]; then
@@ -585,8 +594,11 @@ EOF
     local -a mise_packages=()
     if ! load_mise_packages "$SETUP_CONFIG" mise_packages; then
         warn "No se pudieron cargar paquetes desde $SETUP_CONFIG"
+        echo "[DEBUG] load_mise_packages returned non-zero" >&2
         return 0
     fi
+    echo "[DEBUG] mise_packages loaded: ${#mise_packages[@]} entries" >&2
+    sleep 1
     
     # If no packages configured, exit gracefully
     if [ "${#mise_packages[@]}" -eq 0 ]; then
@@ -607,6 +619,7 @@ EOF
         # Extract binary name
         local bin_name
         bin_name=$(extract_binary_name "$package")
+        echo "[DEBUG] checking package=${package} bin=${bin_name}" >&2
 
         # Skip pip packages (mise doesn't support pip, only pipx)
         if [[ "$package" == pip:* ]]; then
@@ -617,6 +630,7 @@ EOF
 
         # Check for pacman conflicts with cargo packages
         if check_pacman_conflicts "$package" "$bin_name"; then
+            echo "[DEBUG] pacman conflict detected for ${package}" >&2
             continue
         fi
 
@@ -624,6 +638,8 @@ EOF
         if ! is_package_installed "$package" "$bin_name"; then
             g_missing_mise+=("$package")
             printf "%b\n" "  ${CRE}❌ ${CYE}$package ${CRE}no instalado${CNC}"
+        else
+            echo "[DEBUG] ${package} appears installed (bin=${bin_name})" >&2
         fi
     done
     
@@ -688,7 +704,7 @@ EOF
     printf "\n%b\n" "${CBL}   Tiempo total de ejecución: ${CYE}$(format_duration $total_elapsed)${CNC}"
     printf "%b\n" "${CBL}   Paquetes procesados: ${CYE}${#mise_packages[@]}${CNC}"
     printf "%b\n" "${CBL}   Instalados exitosamente: ${CGR}${g_install_count}${CNC}"
-    
+    sleep 60
     # Return appropriate exit code
     if [ "${#g_mise_failed[@]}" -gt 0 ]; then
         return 1
