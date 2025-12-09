@@ -202,6 +202,41 @@ function configure_dotbare() {
         fi
     fi
     
+    # Ensure we have remote tracking for pull/push
+    local branch="master"
+    local upstream="origin/${branch}"
+
+    # Always fetch to refresh remote refs
+    if ! git --git-dir="$DOTBARE_DIR" fetch --prune origin >>"$ERROR_LOG" 2>&1; then
+        warn "No se pudo hacer fetch de origin; revisa conexión/SSH"
+    fi
+
+    # If local branch exists but has no upstream, set it
+    if git --git-dir="$DOTBARE_DIR" show-ref --verify --quiet "refs/heads/${branch}"; then
+        if ! git --git-dir="$DOTBARE_DIR" rev-parse --abbrev-ref "${branch}@{upstream}" >/dev/null 2>&1; then
+            if git --git-dir="$DOTBARE_DIR" show-ref --verify --quiet "refs/remotes/${upstream}"; then
+                if git --git-dir="$DOTBARE_DIR" branch --set-upstream-to="$upstream" "$branch" >>"$ERROR_LOG" 2>&1; then
+                    printf "%b\n" "${BLD}${CGR}Upstream configurado: ${CBL}${branch}${CGR} ↔ ${CBL}${upstream}${CNC}"
+                else
+                    warn "No se pudo configurar upstream para ${branch}"
+                fi
+            else
+                warn "No existe ${upstream}; verifica que la rama remota exista"
+            fi
+        fi
+    else
+        # Create local branch tracking remote if remote exists
+        if git --git-dir="$DOTBARE_DIR" show-ref --verify --quiet "refs/remotes/${upstream}"; then
+            if GIT_DIR="$DOTBARE_DIR" GIT_WORK_TREE="$DOTBARE_TREE" git checkout -b "$branch" --track "$upstream" >>"$ERROR_LOG" 2>&1; then
+                printf "%b\n" "${BLD}${CGR}Rama ${CBL}${branch}${CGR} creada con tracking a ${CBL}${upstream}${CNC}"
+            else
+                warn "No se pudo crear rama ${branch} con tracking a ${upstream}"
+            fi
+        else
+            warn "No hay rama remota ${upstream}; omitiendo tracking"
+        fi
+    fi
+    
     # Display success message (always show, like in monolithic version)
     # Use FINAL_REPO_URL if defined, otherwise REPO_URL
     local DISPLAY_URL="${FINAL_REPO_URL:-$REPO_URL}"
