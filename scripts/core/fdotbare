@@ -202,6 +202,15 @@ function configure_dotbare() {
         fi
     fi
     
+    # Ensure fetch refspec exists so remote-tracking branches are created
+    if ! git --git-dir="$DOTBARE_DIR" config --get-all "remote.origin.fetch" >/dev/null 2>&1; then
+        if git --git-dir="$DOTBARE_DIR" config --add "remote.origin.fetch" "+refs/heads/*:refs/remotes/origin/*" >>"$ERROR_LOG" 2>&1; then
+            printf "%b\n" "${BLD}${CGR}Refspec de fetch configurado para origin (+refs/heads/*).${CNC}"
+        else
+            warn "No se pudo configurar refspec de fetch para origin"
+        fi
+    fi
+    
     # Ensure we have remote tracking for pull/push
     local branch="master"
     local upstream="origin/${branch}"
@@ -218,7 +227,7 @@ function configure_dotbare() {
                 if git --git-dir="$DOTBARE_DIR" branch --set-upstream-to="$upstream" "$branch" >>"$ERROR_LOG" 2>&1; then
                     printf "%b\n" "${BLD}${CGR}Upstream configurado: ${CBL}${branch}${CGR} ↔ ${CBL}${upstream}${CNC}"
                 else
-                    warn "No se pudo configurar upstream para ${branch}"
+                    warn "No se pudo configurar upstream para ${branch} (ver ${ERROR_LOG})"
                 fi
             else
                 warn "No existe ${upstream}; verifica que la rama remota exista"
