@@ -41,6 +41,7 @@ set -Eeuo pipefail
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
 readonly DOTMARCHY_VERSION="v2.0.0"
+readonly HELPER_DIR="${SCRIPT_DIR}/helper"
 
 # Exit codes
 readonly EXIT_SUCCESS=0
@@ -51,35 +52,9 @@ readonly EXIT_DEPENDENCY_MISSING=3
 #######################################
 # Load Dependencies (order matters)
 #######################################
-source "${SCRIPT_DIR}/helper/set_variable.sh" || {
-    echo "ERROR: Cannot load set_variable.sh" >&2
-    exit 1
-}
-
-source "${SCRIPT_DIR}/helper/colors.sh" || {
-    echo "ERROR: Cannot load colors.sh" >&2
-    exit 1
-}
-
-source "${SCRIPT_DIR}/helper/logger.sh" || {
-    echo "ERROR: Cannot load logger.sh" >&2
-    exit 1
-}
-
-source "${SCRIPT_DIR}/helper/utils.sh" || {
-    log_error "Cannot load utils.sh"
-    exit 1
-}
-
-source "${SCRIPT_DIR}/helper/checks.sh" || {
-    log_error "Cannot load checks.sh"
-    exit 1
-}
-
-source "${SCRIPT_DIR}/helper/prompts.sh" || {
-    log_error "Cannot load prompts.sh"
-    exit 1
-}
+# shellcheck source=/dev/null
+source "${HELPER_DIR}/load_helpers.sh"
+load_helpers "${HELPER_DIR}" set_variable colors logger utils checks prompts
 
 #######################################
 # Global Variables Documentation

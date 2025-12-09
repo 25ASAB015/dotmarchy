@@ -7,12 +7,14 @@
 
 set -Eeuo pipefail
 
-mydir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${mydir}/../../helper/set_variable.sh"
-source "${mydir}/../../helper/colors.sh"
-source "${mydir}/../../helper/logger.sh"
-source "${mydir}/../../helper/prompts.sh"
-source "${mydir}/../../helper/utils.sh"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly mydir="$SCRIPT_DIR"
+readonly HELPER_DIR="${SCRIPT_DIR}/../../helper"
+
+# Source required helpers
+# shellcheck source=/dev/null
+source "${HELPER_DIR}/load_helpers.sh"
+load_helpers "${HELPER_DIR}" set_variable colors logger prompts utils
 trap on_error ERR
 
 function usage() {

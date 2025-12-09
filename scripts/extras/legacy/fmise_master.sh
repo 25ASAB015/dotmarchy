@@ -48,13 +48,12 @@ set -Eeuo pipefail
 readonly SCRIPT_VERSION="2.0.0"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+readonly HELPER_DIR="${SCRIPT_DIR}/../../helper"
 
 # Source helper libraries
-source "${SCRIPT_DIR}/../../helper/set_variable.sh"
-source "${SCRIPT_DIR}/../../helper/colors.sh"
-source "${SCRIPT_DIR}/../../helper/logger.sh"
-source "${SCRIPT_DIR}/../../helper/prompts.sh"
-source "${SCRIPT_DIR}/../../helper/checks.sh"
+# shellcheck source=/dev/null
+source "${HELPER_DIR}/load_helpers.sh"
+load_helpers "${HELPER_DIR}" set_variable colors logger prompts checks
 
 # Error handling
 trap 'on_error ${LINENO}' ERR

@@ -29,15 +29,14 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly DOTBARE_CLONE_URL="https://github.com/kazhala/dotbare.git"
 readonly DOTBARE_INSTALL_DIR="$HOME/.dotbare"
 readonly DEFAULT_BRANCH="master"
+readonly HELPER_DIR="${SCRIPT_DIR}/../../helper"
 
 #######################################
 # Load Dependencies
 #######################################
-source "${SCRIPT_DIR}/../../helper/set_variable.sh"
-source "${SCRIPT_DIR}/../../helper/colors.sh"
-source "${SCRIPT_DIR}/../../helper/logger.sh"
-source "${SCRIPT_DIR}/../../helper/prompts.sh"
-source "${SCRIPT_DIR}/../../helper/utils.sh"
+# shellcheck source=/dev/null
+source "${HELPER_DIR}/load_helpers.sh"
+load_helpers "${HELPER_DIR}" set_variable colors logger prompts utils
 
 trap on_error ERR
 

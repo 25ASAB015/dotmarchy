@@ -48,27 +48,12 @@ set -Eeuo pipefail
 readonly SCRIPT_VERSION="2.0.0"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+readonly HELPER_DIR="${SCRIPT_DIR}/../../helper"
 
-# Source helper libraries (with fallback)
-if [ -f "${SCRIPT_DIR}/../../helper/set_variable.sh" ]; then
-    source "${SCRIPT_DIR}/../../helper/set_variable.sh"
-    source "${SCRIPT_DIR}/../../helper/colors.sh"
-    source "${SCRIPT_DIR}/../../helper/logger.sh"
-    source "${SCRIPT_DIR}/../../helper/prompts.sh"
-    source "${SCRIPT_DIR}/../../helper/checks.sh"
-else
-    # Fallback: Define basic functions if helpers not available
-    function info() { echo -e "\033[0;34m[INFO]\033[0m $*"; }
-    function warn() { echo -e "\033[0;33m[WARN]\033[0m $*" >&2; }
-    function log_error() { echo -e "\033[0;31m[ERROR]\033[0m $*" >&2; }
-    function is_installed() { command -v "$1" >/dev/null 2>&1; }
-    function logo() { echo -e "\n\033[1;36m>>> $*\033[0m\n"; }
-    
-    # Basic colors
-    readonly BLD="\033[1m" CNC="\033[0m"
-    readonly CGR="\033[0;32m" CRE="\033[0;31m"
-    readonly CYE="\033[0;33m" CBL="\033[0;34m"
-fi
+# Source helper libraries
+# shellcheck source=/dev/null
+source "${HELPER_DIR}/load_helpers.sh"
+load_helpers "${HELPER_DIR}" set_variable colors logger prompts checks
 
 # Error handling
 function on_error() {

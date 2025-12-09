@@ -20,12 +20,13 @@
 set -Eeuo pipefail
 
 # Get script directory and source dependencies
-mydir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${mydir}/../../helper/set_variable.sh"
-source "${mydir}/../../helper/colors.sh"
-source "${mydir}/../../helper/logger.sh"
-source "${mydir}/../../helper/prompts.sh"
-source "${mydir}/../../helper/checks.sh"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly mydir="$SCRIPT_DIR"
+readonly HELPER_DIR="${SCRIPT_DIR}/../../helper"
+
+# shellcheck source=/dev/null
+source "${HELPER_DIR}/load_helpers.sh"
+load_helpers "${HELPER_DIR}" set_variable colors logger prompts checks
 trap on_error ERR
 
 # Global tracking arrays - declared at script level
