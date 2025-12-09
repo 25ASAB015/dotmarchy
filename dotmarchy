@@ -107,9 +107,25 @@ source "${SCRIPT_DIR}/helper/prompts.sh" || {
 #   debug(msg): Log debug message (if VERBOSE=1)
 #
 # Functions (from utils.sh):
-#   command_exists(cmd): Check if command is available
+#   run(): Execute command with logging/timing
 #   require_cmd(cmd): Ensure command exists or exit
-#   on_error(): Global error handler
+#   normalize_repo_url(url): Normalize git URL
+#   ssh_to_https(url): Convert SSH URL to HTTPS
+#   check_ssh_auth(): Verify SSH authentication
+#   get_nvm_dir(): Resolve NVM directory
+#   preflight_utils(): Check required utilities
+#   ensure_node_available(): Ensure Node.js/npm availability
+#   dotmarchy_usage(): Show primary CLI help
+#   parse_arguments(): Parse CLI arguments and set flags
+#   initialize_error_log(): Reset error log file
+#   execute_core_script(name, [critical]): Run core scripts with guard
+#   execute_extras_script(name): Run extras scripts
+#   execute_setup_script(name): Run setup scripts
+#   configure_dotbare(): Configure dotbare (critical)
+#   execute_core_operations(): Run core installation flow
+#   execute_extras_operations(): Run extras flow
+#   execute_setup_operations(): Run setup flow
+#   run_verification_mode(): Execute verification mode and exit
 #
 # Functions (from checks.sh):
 #   initial_checks(): Perform system validation
@@ -128,383 +144,8 @@ source "${SCRIPT_DIR}/helper/prompts.sh" || {
 trap on_error ERR
 
 #######################################
-# Initialize error log for fresh diagnostics
-#######################################
-initialize_error_log() {
-    : > "${ERROR_LOG}" || {
-        warn "No se pudo limpiar el log de errores: ${ERROR_LOG}"
-    }
-}
-
-#######################################
-# Display usage information
-#######################################
-usage() {
-    cat << EOF
-${BLD}${CBL}dotmarchy${CNC} ${DOTMARCHY_VERSION}
-Modular dotfiles installation and system setup tool for Arch Linux
-
-${BLD}Usage:${CNC}
-  ${SCRIPT_NAME} [OPTIONS] [REPO_URL]
-
-${BLD}Options:${CNC}
-  -h, --help          Show this help message and exit
-  --extras            Install extra packages (npm, cargo, pip, etc.)
-  --setup-env         Setup environment (directories, repos, shell config)
-  --verify            Run verification checks and exit
-  --repo URL          Override default dotfiles repository URL
-  -v, --verbose       Enable verbose output
-  -f, --force         Force operations without prompts
-
-${BLD}Examples:${CNC}
-  ${SCRIPT_NAME}
-  ${SCRIPT_NAME} --extras --setup-env
-  ${SCRIPT_NAME} --repo git@github.com:user/dotfiles.git
-  ${SCRIPT_NAME} --verify
-
-${BLD}Environment Variables:${CNC}
-  REPO_URL            Override default repository URL
-  INSTALL_EXTRAS      Set to 1 to install extras (same as --extras)
-  SETUP_ENVIRONMENT   Set to 1 to setup environment (same as --setup-env)
-  FORCE               Set to 1 to force operations
-  VERBOSE             Set to 1 for verbose output
-
-${BLD}Exit Codes:${CNC}
-  0  Success
-  1  General failure
-  2  Invalid input
-  3  Missing dependencies
-
-For more information, visit: https://github.com/25asab015/dotfiles
-EOF
-}
-
-#######################################
-# Parse command-line arguments
-#
-# Processes all command-line options and sets appropriate flags.
-# Supports both long and short options.
-#
-# Arguments:
-#   $@: All command-line arguments
-#
-# Side Effects:
-#   - Sets INSTALL_EXTRAS flag
-#   - Sets SETUP_ENVIRONMENT flag
-#   - Sets VERIFY_MODE flag
-#   - Sets REPO_URL if --repo provided
-#   - May exit with usage message
-#######################################
-parse_arguments() {
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -h|--help)
-                usage
-                exit "$EXIT_SUCCESS"
-                ;;
-            --extras)
-                export INSTALL_EXTRAS=1
-                debug "Extras installation enabled"
-                shift
-                ;;
-            --setup-env)
-                export SETUP_ENVIRONMENT=1
-                debug "Environment setup enabled"
-                shift
-                ;;
-            --verify)
-                export VERIFY_MODE=1
-                debug "Verification mode enabled"
-                shift
-                ;;
-            --repo)
-                [ -z "${2:-}" ] && {
-                    log_error "Option --repo requires an argument"
-                    usage
-                    exit "$EXIT_INVALID_INPUT"
-                }
-                export REPO_URL="$2"
-                debug "Repository URL overridden: $REPO_URL"
-                shift 2
-                ;;
-            -v|--verbose)
-                export VERBOSE=1
-                debug "Verbose mode enabled"
-                shift
-                ;;
-            -f|--force)
-                export FORCE=1
-                debug "Force mode enabled"
-                shift
-                ;;
-            -*)
-                log_error "Unknown option: $1"
-                usage
-                exit "$EXIT_INVALID_INPUT"
-                ;;
-            *)
-                # Treat as repository URL
-                export REPO_URL="$1"
-                debug "Repository URL from argument: $REPO_URL"
-                shift
-                ;;
-        esac
-    done
-}
-
-#######################################
-# Execute core script with error handling
-#
-# Runs a script from the scripts/core directory and handles
-# errors appropriately. Logs failures but continues execution
-# for non-critical operations.
-#
-# Arguments:
-#   $1: Script name (without path)
-#   $2: (optional) Critical flag - if "critical", exit on failure
-#
-# Returns:
-#   0: Script executed successfully
-#   1: Script failed (only if not critical)
-#
-# Side Effects:
-#   - May exit if script is critical and fails
-#######################################
-execute_core_script() {
-    local script_name="$1"
-    local is_critical="${2:-non-critical}"
-    local script_path="${SCRIPT_DIR}/scripts/core/${script_name}"
-    
-    [ ! -f "$script_path" ] && {
-        log_error "Script not found: $script_path"
-        [ "$is_critical" = "critical" ] && exit "$EXIT_FAILURE"
-        return "$EXIT_FAILURE"
-    }
-    
-    [ ! -x "$script_path" ] && {
-        log_error "Script not executable: $script_path"
-        [ "$is_critical" = "critical" ] && exit "$EXIT_FAILURE"
-        return "$EXIT_FAILURE"
-    }
-    
-    debug "Executing: $script_name"
-    
-    if "$script_path"; then
-        debug "Completed: $script_name"
-        return "$EXIT_SUCCESS"
-    fi
-    
-    log_error "Failed: $script_name"
-    
-    if [ "$is_critical" = "critical" ]; then
-        log_error "Critical script failed, aborting installation"
-        exit "$EXIT_FAILURE"
-    fi
-    
-    warn "Script falló pero continuando instalación..."
-    return "$EXIT_FAILURE"
-}
-
-#######################################
-# Execute extras script with error handling
-#
-# Runs a script from the scripts/extras directory.
-# Extras are never critical, so failures only generate warnings.
-#
-# Arguments:
-#   $1: Script name (without path)
-#
-# Returns:
-#   0: Script executed successfully
-#   1: Script failed
-#######################################
-execute_extras_script() {
-    local script_name="$1"
-    local script_path="${SCRIPT_DIR}/scripts/extras/${script_name}"
-    
-    [ ! -f "$script_path" ] && {
-        warn "Script extra no encontrado: $script_name"
-        return "$EXIT_FAILURE"
-    }
-    
-    debug "Executing extras: $script_name"
-    
-    if "$script_path"; then
-        debug "Completed extras: $script_name"
-        return "$EXIT_SUCCESS"
-    fi
-    
-    warn "Script extra falló: $script_name (continuando)"
-    return "$EXIT_FAILURE"
-}
-
-#######################################
-# Execute setup script with error handling
-#
-# Runs a script from the scripts/setup directory.
-# Setup scripts are important but not critical.
-#
-# Arguments:
-#   $1: Script name (without path)
-#
-# Returns:
-#   0: Script executed successfully
-#   1: Script failed
-#######################################
-execute_setup_script() {
-    local script_name="$1"
-    local script_path="${SCRIPT_DIR}/scripts/setup/${script_name}"
-    
-    [ ! -f "$script_path" ] && {
-        warn "Script de setup no encontrado: $script_name"
-        return "$EXIT_FAILURE"
-    }
-    
-    debug "Executing setup: $script_name"
-    
-    if "$script_path"; then
-        debug "Completed setup: $script_name"
-        return "$EXIT_SUCCESS"
-    fi
-    
-    warn "Script de setup falló: $script_name"
-    return "$EXIT_FAILURE"
-}
-
-#######################################
-# Configure dotbare and clone dotfiles
-#
-# This is the first operation because it makes setup.conf
-# available for subsequent scripts.
-#
-# Returns:
-#   0: Dotbare configured successfully
-#   1: Configuration failed (critical error)
-#######################################
-configure_dotbare() {
-    info "Configurando dotbare (clonando dotfiles)..."
-    execute_core_script "fdotbare" "critical"
-}
-
-#######################################
-# Execute core installation operations
-#
-# Runs all core scripts in the correct order:
-#   1. System update
-#   2. Chaotic-AUR setup
-#   3. Official repository packages
-#   4. Chaotic-AUR packages
-#   5. AUR packages
-#   6. Zsh setup
-#
-# Returns:
-#   0: All core operations completed (some may have warnings)
-#######################################
-execute_core_operations() {
-    info "Iniciando operaciones core..."
-    
-    # System update (critical)
-    execute_core_script "fupdate" "critical"
-    
-    # Configure Chaotic-AUR repository (critical)
-    execute_core_script "fchaotic" "critical"
-    
-    # Install dependencies from official repos (important but not critical)
-    execute_core_script "fdeps" || {
-        warn "Algunos paquetes oficiales fallaron, pero continuando..."
-    }
-    
-    # Install dependencies from Chaotic-AUR
-    execute_core_script "fchaotic-deps"
-    
-    # Install AUR packages
-    execute_core_script "faur"
-    
-    # Configure Zsh as default shell (critical for good UX)
-    info "Configurando Zsh como shell predeterminada..."
-    execute_core_script "fzsh" "critical"
-}
-
-#######################################
-# Execute extras installation operations
-#
-# Installs extra packages (npm, cargo, pip, etc.) if --extras flag set.
-# All extras are optional and won't abort installation on failure.
-#
-# Returns:
-#   0: Extras completed (may have some failures)
-#######################################
-execute_extras_operations() {
-    [ "${INSTALL_EXTRAS:-0}" -eq 0 ] && {
-        debug "Saltando extras (--extras no activado)"
-        return "$EXIT_SUCCESS"
-    }
-    
-    info "Iniciando instalación de extras..."
-    
-    # MISE package manager
-    execute_extras_script "fmise"
-    
-    # MISE complementary tools
-    execute_extras_script "fmise-extras"
-    
-    return "$EXIT_SUCCESS"
-}
-
-#######################################
-# Execute environment setup operations
-#
-# Sets up environment (directories, repos, shell config) if --setup-env set.
-# Uses unified setup script for better UX.
-#
-# Returns:
-#   0: Setup completed
-#######################################
-execute_setup_operations() {
-    [ "${SETUP_ENVIRONMENT:-0}" -eq 0 ] && {
-        debug "Saltando setup (--setup-env no activado)"
-        return "$EXIT_SUCCESS"
-    }
-    
-    info "Iniciando configuración de entorno..."
-    
-    # Use unified setup script for better UX
-    execute_setup_script "fenv-setup"
-    
-    return "$EXIT_SUCCESS"
-}
-
-#######################################
-# Run verification mode
-#
-# Executes verification checks and exits immediately.
-# This is a separate mode from normal installation.
-#
-# Side Effects:
-#   - Exits the script after verification
-#######################################
-run_verification_mode() {
-    [ "${VERIFY_MODE:-0}" -eq 0 ] && return "$EXIT_SUCCESS"
-    
-    info "Modo de verificación activado"
-    exec "${SCRIPT_DIR}/scripts/fverify"
-}
-
-#######################################
 # Main entry point
-#
-# Orchestrates the entire installation flow:
-#   1. Parse arguments
-#   2. Initialize environment
-#   3. Run checks
-#   4. Handle verification mode
-#   5. Get user confirmation
-#   6. Configure dotbare
-#   7. Run core operations
-#   8. Run extras (if enabled)
-#   9. Run setup (if enabled)
-#   10. Display completion
-#
+#######################################
 # Arguments:
 #   $@: Command-line arguments
 #
@@ -513,6 +154,7 @@ run_verification_mode() {
 #   EXIT_FAILURE: Installation encountered critical errors
 #######################################
 main() {
+
     # Parse command-line arguments and set flags
     parse_arguments "$@"
     
@@ -548,6 +190,7 @@ main() {
     farewell
     
     return "$EXIT_SUCCESS"
+
 }
 
 # Execute only if invoked directly (not sourced)

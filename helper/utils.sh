@@ -21,6 +21,17 @@
 #   get_nvm_dir(): Get NVM directory (XDG first, then ~/.nvm)
 #   preflight_utils(): Check required utilities for GitHub downloads
 #   ensure_node_available(): Ensure Node.js >= 18 is available
+#   dotmarchy_usage(): Show primary CLI usage/help
+#   parse_arguments(): Parse CLI arguments and set flags
+#   initialize_error_log(): Reset error log file
+#   execute_core_script(): Run core script with error handling
+#   execute_extras_script(): Run extras script with error handling
+#   execute_setup_script(): Run setup script with error handling
+#   configure_dotbare(): Configure dotbare (critical)
+#   execute_core_operations(): Run core installation flow
+#   execute_extras_operations(): Run extras installation flow
+#   execute_setup_operations(): Run setup flow
+#   run_verification_mode(): Execute verification mode and exit
 
 set -Eeuo pipefail
 
@@ -278,5 +289,245 @@ ensure_node_available() {
     fi
     
     return 0
+}
+
+#######################################
+# Primary CLI helpers used by dotmarchy
+# These functions rely on globals defined in dotmarchy/set_variable.sh:
+#   SCRIPT_DIR, SCRIPT_NAME, DOTMARCHY_VERSION
+#   EXIT_SUCCESS, EXIT_FAILURE, EXIT_INVALID_INPUT
+#   REPO_URL, INSTALL_EXTRAS, SETUP_ENVIRONMENT, VERIFY_MODE,
+#   ERROR_LOG, INSTALL_START_TIME
+#######################################
+
+dotmarchy_usage() {
+    cat << EOF
+${BLD}${CBL}dotmarchy${CNC} ${DOTMARCHY_VERSION}
+Modular dotfiles installation and system setup tool for Arch Linux
+
+${BLD}Usage:${CNC}
+  ${SCRIPT_NAME} [OPTIONS] [REPO_URL]
+
+${BLD}Options:${CNC}
+  -h, --help          Show this help message and exit
+  --extras            Install extra packages (npm, cargo, pip, etc.)
+  --setup-env         Setup environment (directories, repos, shell config)
+  --verify            Run verification checks and exit
+  --repo URL          Override default dotfiles repository URL
+  -v, --verbose       Enable verbose output
+  -f, --force         Force operations without prompts
+
+${BLD}Examples:${CNC}
+  ${SCRIPT_NAME}
+  ${SCRIPT_NAME} --extras --setup-env
+  ${SCRIPT_NAME} --repo git@github.com:user/dotfiles.git
+  ${SCRIPT_NAME} --verify
+
+${BLD}Environment Variables:${CNC}
+  REPO_URL            Override default repository URL
+  INSTALL_EXTRAS      Set to 1 to install extras (same as --extras)
+  SETUP_ENVIRONMENT   Set to 1 to setup environment (same as --setup-env)
+  FORCE               Set to 1 to force operations
+  VERBOSE             Set to 1 for verbose output
+
+${BLD}Exit Codes:${CNC}
+  0  Success
+  1  General failure
+  2  Invalid input
+  3  Missing dependencies
+
+For more information, visit: https://github.com/25asab015/dotfiles
+EOF
+}
+
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                dotmarchy_usage
+                exit "${EXIT_SUCCESS:-0}"
+                ;;
+            --extras)
+                export INSTALL_EXTRAS=1
+                debug "Extras installation enabled"
+                shift
+                ;;
+            --setup-env)
+                export SETUP_ENVIRONMENT=1
+                debug "Environment setup enabled"
+                shift
+                ;;
+            --verify)
+                export VERIFY_MODE=1
+                debug "Verification mode enabled"
+                shift
+                ;;
+            --repo)
+                [ -z "${2:-}" ] && {
+                    log_error "Option --repo requires an argument"
+                    dotmarchy_usage
+                    exit "${EXIT_INVALID_INPUT:-2}"
+                }
+                export REPO_URL="$2"
+                debug "Repository URL overridden: $REPO_URL"
+                shift 2
+                ;;
+            -v|--verbose)
+                export VERBOSE=1
+                debug "Verbose mode enabled"
+                shift
+                ;;
+            -f|--force)
+                export FORCE=1
+                debug "Force mode enabled"
+                shift
+                ;;
+            -*)
+                log_error "Unknown option: $1"
+                dotmarchy_usage
+                exit "${EXIT_INVALID_INPUT:-2}"
+                ;;
+            *)
+                export REPO_URL="$1"
+                debug "Repository URL from argument: $REPO_URL"
+                shift
+                ;;
+        esac
+    done
+}
+
+initialize_error_log() {
+    : > "${ERROR_LOG}" || {
+        warn "No se pudo limpiar el log de errores: ${ERROR_LOG}"
+    }
+}
+
+execute_core_script() {
+    local script_name="$1"
+    local is_critical="${2:-non-critical}"
+    local script_path="${SCRIPT_DIR}/scripts/core/${script_name}"
+    
+    [ ! -f "$script_path" ] && {
+        log_error "Script not found: $script_path"
+        [ "$is_critical" = "critical" ] && exit "${EXIT_FAILURE:-1}"
+        return "${EXIT_FAILURE:-1}"
+    }
+    
+    [ ! -x "$script_path" ] && {
+        log_error "Script not executable: $script_path"
+        [ "$is_critical" = "critical" ] && exit "${EXIT_FAILURE:-1}"
+        return "${EXIT_FAILURE:-1}"
+    }
+    
+    debug "Executing: $script_name"
+    
+    if "$script_path"; then
+        debug "Completed: $script_name"
+        return "${EXIT_SUCCESS:-0}"
+    fi
+    
+    log_error "Failed: $script_name"
+    
+    if [ "$is_critical" = "critical" ]; then
+        log_error "Critical script failed, aborting installation"
+        exit "${EXIT_FAILURE:-1}"
+    fi
+    
+    warn "Script falló pero continuando instalación..."
+    return "${EXIT_FAILURE:-1}"
+}
+
+execute_extras_script() {
+    local script_name="$1"
+    local script_path="${SCRIPT_DIR}/scripts/extras/${script_name}"
+    
+    [ ! -f "$script_path" ] && {
+        warn "Script extra no encontrado: $script_name"
+        return "${EXIT_FAILURE:-1}"
+    }
+    
+    debug "Executing extras: $script_name"
+    
+    if "$script_path"; then
+        debug "Completed extras: $script_name"
+        return "${EXIT_SUCCESS:-0}"
+    fi
+    
+    warn "Script extra falló: $script_name (continuando)"
+    return "${EXIT_FAILURE:-1}"
+}
+
+execute_setup_script() {
+    local script_name="$1"
+    local script_path="${SCRIPT_DIR}/scripts/setup/${script_name}"
+    
+    [ ! -f "$script_path" ] && {
+        warn "Script de setup no encontrado: $script_name"
+        return "${EXIT_FAILURE:-1}"
+    }
+    
+    debug "Executing setup: $script_name"
+    
+    if "$script_path"; then
+        debug "Completed setup: $script_name"
+        return "${EXIT_SUCCESS:-0}"
+    fi
+    
+    warn "Script de setup falló: $script_name"
+    return "${EXIT_FAILURE:-1}"
+}
+
+configure_dotbare() {
+    info "Configurando dotbare (clonando dotfiles)..."
+    execute_core_script "fdotbare" "critical"
+}
+
+execute_core_operations() {
+    info "Iniciando operaciones core..."
+    
+    execute_core_script "fupdate" "critical"
+    execute_core_script "fchaotic" "critical"
+    
+    execute_core_script "fdeps" || {
+        warn "Algunos paquetes oficiales fallaron, pero continuando..."
+    }
+    
+    execute_core_script "fchaotic-deps"
+    execute_core_script "faur"
+    
+    info "Configurando Zsh como shell predeterminada..."
+    execute_core_script "fzsh" "critical"
+}
+
+execute_extras_operations() {
+    [ "${INSTALL_EXTRAS:-0}" -eq 0 ] && {
+        debug "Saltando extras (--extras no activado)"
+        return "${EXIT_SUCCESS:-0}"
+    }
+    
+    info "Iniciando instalación de extras..."
+    execute_extras_script "fmise"
+    execute_extras_script "fmise-extras"
+    
+    return "${EXIT_SUCCESS:-0}"
+}
+
+execute_setup_operations() {
+    [ "${SETUP_ENVIRONMENT:-0}" -eq 0 ] && {
+        debug "Saltando setup (--setup-env no activado)"
+        return "${EXIT_SUCCESS:-0}"
+    }
+    
+    info "Iniciando configuración de entorno..."
+    execute_setup_script "fenv-setup"
+    
+    return "${EXIT_SUCCESS:-0}"
+}
+
+run_verification_mode() {
+    [ "${VERIFY_MODE:-0}" -eq 0 ] && return "${EXIT_SUCCESS:-0}"
+    
+    info "Modo de verificación activado"
+    exec "${SCRIPT_DIR}/scripts/fverify"
 }
 
