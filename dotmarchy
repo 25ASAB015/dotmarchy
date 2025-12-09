@@ -77,6 +77,10 @@ main() {
     # Install AUR packages (includes dotbare from AUR, but dotbare is already available)
     "${mydir}/scripts/core/faur"
     
+    # Ensure Zsh is installed and set as default shell
+    info "Configurando Zsh como shell predeterminada..."
+    "${mydir}/scripts/core/fzsh"
+    
     # ===== EXTRAS OPERATIONS (only if --extras) =====
     if [ "${INSTALL_EXTRAS:-0}" -eq 1 ]; then
         info "Iniciando instalación de extras..."

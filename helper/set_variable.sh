@@ -67,7 +67,7 @@ export SKIP_SYSTEM="${SKIP_SYSTEM:-0}"
 export VERIFY_MODE="${VERIFY_MODE:-0}"
 
 # Core dependencies (always installed)
-export CORE_DEPENDENCIES="tree bat highlight ruby-coderay git-delta diff-so-fancy npm"
+export CORE_DEPENDENCIES="zsh tree bat highlight ruby-coderay git-delta diff-so-fancy npm"
 
 # Default extra packages (can be overridden by SETUP_CONFIG)
 export DEFAULT_EXTRA_DEPENDENCIES="neovim tmux htop ripgrep fd fzf"

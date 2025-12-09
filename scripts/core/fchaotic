@@ -118,6 +118,11 @@ function main() {
         return 1
     fi
     
+    # Silent pacman database refresh (required after adding repository)
+    if ! sudo pacman -Sy --noconfirm >/dev/null 2>>"$ERROR_LOG"; then
+        warn "pacman -Sy falló tras agregar chaotic-aur; revisa $ERROR_LOG"
+    fi
+    
     printf "%b\n" "\n${BLD}${CBL}${repo_name} ${CGR}Repositorio configurado correctamente!${CNC}"
     sleep 3
 }
