@@ -184,6 +184,32 @@ are_urls_equivalent() {
 }
 
 #######################################
+# Check if we should canonicalize GitHub SSH URL
+# (e.g., only case differs: 25asab015 vs 25ASAB015)
+# Arguments:
+#   $1: Current URL
+#   $2: Target URL
+# Returns:
+#   0 if canonicalization should be applied, 1 otherwise
+#######################################
+needs_github_ssh_canonicalization() {
+    local current="$1"
+    local target="$2"
+
+    [[ $current =~ ^git@github\.com: ]] || return 1
+    [[ $target =~ ^git@github\.com: ]] || return 1
+
+    # Compare repo path case-insensitively, but require string inequality
+    local current_path="${current#git@github.com:}"
+    local target_path="${target#git@github.com:}"
+
+    [ "${current_path,,}" = "${target_path,,}" ] || return 1
+    [ "$current" != "$target" ] || return 1
+
+    return 0
+}
+
+#######################################
 # Update repository remote URL
 # Arguments:
 #   $1: New URL
@@ -239,6 +265,11 @@ validate_remote_url() {
     [ -z "$current_url" ] && return 0
     
     if are_urls_equivalent "$current_url" "$REPO_URL"; then
+        if needs_github_ssh_canonicalization "$current_url" "$REPO_URL"; then
+            printf "%b\n" "${BLD}${CYE}Remote URL is equivalent but not canonical; updating...${CNC}"
+            update_remote_url "$REPO_URL"
+            return $?
+        fi
         printf "%b\n" "${BLD}${CGR}Remote URL is correct${CNC}"
         return 0
     fi

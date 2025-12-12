@@ -56,7 +56,7 @@ export DOTBARE_TREE="${DOTBARE_TREE:-$HOME}"
 export DOTBARE_BACKUP="${DOTBARE_BACKUP:-${XDG_DATA_HOME:-$HOME/.local/share}/dotbare}"
 
 # Default repository URL
-export REPO_URL="${REPO_URL:-git@github.com:25asab015/dotfiles.git}"
+export REPO_URL="${REPO_URL:-git@github.com:25ASAB015/dotfiles.git}"
 
 # Configuration paths
 export SETUP_CONFIG="${SETUP_CONFIG:-$HOME/.config/dotmarchy/setup.conf}"
